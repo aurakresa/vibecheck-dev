@@ -1,85 +1,95 @@
-package com.example.vibecheck
+package com.example.vibecheck_dev
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
-import com.example.vibecheck_dev.ui.screens.CameraHostScreen
-import com.example.vibecheck_dev.ui.theme.VibeCheckdevTheme // Sesuaikan dengan nama project lu
-import com.example.vibecheck_dev.server.VibeServer
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+
+// Import semua layar dan komponen yang sudah kita buat sejauh ini
+import com.example.vibecheck_dev.ui.theme.VibeCheckdevTheme
+import com.example.vibecheck_dev.presentation.permission.PermissionScreen
+import com.example.vibecheck_dev.presentation.home.HomeScreen
+import com.example.vibecheck_dev.presentation.camera.CameraScreen
+import com.example.vibecheck_dev.presentation.camera.CameraViewModel
+import com.example.vibecheck_dev.presentation.remote.RemoteScreen
+import com.example.vibecheck_dev.presentation.remote.RemoteViewModel
+import com.example.vibecheck_dev.data.repository_impl.P2pRepositoryImpl
 
 class MainActivity : ComponentActivity() {
-
-    // 1. Inisialisasi Mesin Server Lu
-    private val vibeServer = VibeServer()
-
-    // 2. Launcher untuk minta Izin (Camera & Audio)
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
-        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-
-        if (!cameraGranted) {
-            Toast.makeText(this, "Izin Kamera ditolak!", Toast.LENGTH_LONG).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // 3. Minta izin pas aplikasi baru dibuka
-        checkAndRequestPermissions()
-
-        // 4. Mulai render UI (Menghubungkan Layar dengan Mesin Server)
         setContent {
-            VibeCheckdevTheme { // Ini tema bawaan Compose
-
-                // Variabel state untuk nyimpen IP yang reaktif (UI otomatis berubah kalau ini berubah)
-                var ipAddress by remember { mutableStateOf("") }
-
-                // Panggil layar UI Host
-                CameraHostScreen(
-                    serverIp = ipAddress,
-                    onStartServer = {
-                        // Nanti di sini lu panggil fungsi getWifiIP() bawaan Android lu
-                        val dummyIp = "192.168.1.10"
-                        ipAddress = dummyIp
-
-                        // Nyalakan Ktor Server (Nanti)
-                        // vibeServer.startServer(dummyIp)
-                    }
-                )
+            VibeCheckdevTheme {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavigation()
+                }
             }
         }
     }
+}
 
-    private fun checkAndRequestPermissions() {
-        val requiredPermissions = arrayOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO
-        )
+@Composable
+fun AppNavigation() {
+    // Mesin utama navigasi layar
+    val navController = rememberNavController()
+    val context = LocalContext.current
 
-        val missingPermissions = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
+    // 1. INISIALISASI MESIN UTAMA
+    // Kita gunakan 'remember' agar mesin ini tidak dibuat ulang saat UI berubah
+    val p2pRepository = remember { P2pRepositoryImpl(context) }
 
-        if (missingPermissions.isNotEmpty()) {
-            requestPermissionLauncher.launch(missingPermissions)
+    // 2. INISIALISASI VIEWMODEL
+    // Menyuntikkan repository ke dalam masing-masing ViewModel
+    val cameraViewModel = remember { CameraViewModel(p2pRepository) }
+    val remoteViewModel = remember { RemoteViewModel(p2pRepository) }
+
+    NavHost(navController = navController, startDestination = "permission_screen") {
+
+        // Layar 1: Minta Izin
+        composable("permission_screen") {
+            PermissionScreen(
+                onAllPermissionsGranted = {
+                    navController.navigate("home_screen") {
+                        popUpTo("permission_screen") { inclusive = true }
+                    }
+                }
+            )
         }
-    }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Jangan lupa matiin server kalau aplikasinya ditutup!
-        // vibeServer.stopServer()
+        // Layar 2: Beranda (Pilih Mode)
+        composable("home_screen") {
+            HomeScreen(
+                onNavigateToCamera = { navController.navigate("camera_screen") },
+                onNavigateToRemote = { navController.navigate("remote_screen") }
+            )
+        }
+
+        // Layar 3: Mode HP ditaruh di tripod (Host/Kamera)
+        composable("camera_screen") {
+            CameraScreen(
+                viewModel = cameraViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // Layar 4: Mode HP dipegang tangan (Client/Remote)
+        composable("remote_screen") {
+            RemoteScreen(
+                viewModel = remoteViewModel,
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
     }
 }
