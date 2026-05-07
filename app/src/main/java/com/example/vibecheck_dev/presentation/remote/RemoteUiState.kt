@@ -10,5 +10,10 @@ data class RemoteUiState(
 
     // Kita pindahkan state lokal (dari remember) ke sini
     val flashMode: String = "OFF",
-    val timerSeconds: Int = 0
+    val timerSeconds: Int = 0,
+    val isDigicamFilterActive: Boolean = false,
+    val isPhotoboothMode: Boolean = false,
+
+    // --- TAMBAHAN BARU ---
+    val isDiscovering: Boolean = false
 )

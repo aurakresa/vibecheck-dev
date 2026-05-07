@@ -10,5 +10,7 @@ data class CameraUiState(
     val zoomRatio: Float = 1f,
     // Menyimpan spek hardware di dalam state juga
     val minZoom: Float = 1f,
-    val maxZoom: Float = 1f
+    val maxZoom: Float = 1f,
+    val isDigicamFilterActive: Boolean = false,
+    val isPhotoboothMode: Boolean = false
 )

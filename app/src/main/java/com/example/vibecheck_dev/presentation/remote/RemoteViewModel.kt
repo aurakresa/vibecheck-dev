@@ -74,7 +74,16 @@ class RemoteViewModel(
     // SEMUA AKSI MASUK LEWAT SATU PINTU (Mencegah fungsi berceceran)
     fun onEvent(event: RemoteEvent) {
         when (event) {
-            is RemoteEvent.StartDiscovery -> p2pRepository.startDiscovery()
+            is RemoteEvent.StartDiscovery -> {
+                _uiState.update { it.copy(isDiscovering = true) }
+                p2pRepository.startDiscovery()
+
+                // Matikan efek loading setelah 3 detik (simulasi pencarian selesai)
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(3000)
+                    _uiState.update { it.copy(isDiscovering = false) }
+                }
+            }
             is RemoteEvent.StopDiscovery -> p2pRepository.stopDiscovery()
             is RemoteEvent.ConnectToDevice -> p2pRepository.connectToDevice(event.deviceAddress)
             is RemoteEvent.Disconnect -> p2pRepository.disconnect()
@@ -101,6 +110,17 @@ class RemoteViewModel(
             is RemoteEvent.ChangeZoom -> {
                 _uiState.update { it.copy(currentZoom = event.ratio) }
                 p2pRepository.sendMessage("CMD_ZOOM_${event.ratio}")
+            }
+
+            is RemoteEvent.ToggleDigicamFilter -> {
+                val newState = !_uiState.value.isDigicamFilterActive
+                _uiState.update { it.copy(isDigicamFilterActive = newState) }
+                p2pRepository.sendMessage("CMD_FILTER_${if(newState) "ON" else "OFF"}")
+            }
+            is RemoteEvent.TogglePhotoboothMode -> {
+                val newState = !_uiState.value.isPhotoboothMode
+                _uiState.update { it.copy(isPhotoboothMode = newState) }
+                p2pRepository.sendMessage("CMD_PHOTOBOOTH_${if(newState) "ON" else "OFF"}")
             }
         }
     }

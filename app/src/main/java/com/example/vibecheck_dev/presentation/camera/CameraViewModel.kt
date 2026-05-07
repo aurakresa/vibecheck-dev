@@ -69,6 +69,22 @@ class CameraViewModel(
                         val currentMax = _uiState.value.maxZoom
                         p2pRepository.sendMessage("SYNC_ZOOM_${currentMin}_${currentMax}")
                     }
+
+                    message.startsWith("CMD_FILTER_") -> {
+                        val isOn = message.removePrefix("CMD_FILTER_") == "ON"
+                        _uiState.update { it.copy(isDigicamFilterActive = isOn) }
+                    }
+                    message.startsWith("CMD_PHOTOBOOTH_") -> {
+                        val isOn = message.removePrefix("CMD_PHOTOBOOTH_") == "ON"
+                        _uiState.update { it.copy(isPhotoboothMode = isOn) }
+                    }
+                    message == "CMD_JEPRET" -> {
+                        if (_uiState.value.isPhotoboothMode) {
+                            startPhotoboothSequence() // Panggil loop 4x
+                        } else {
+                            _takePhotoTrigger.tryEmit(Unit)
+                        }
+                    }
                 }
             }
         }
@@ -96,6 +112,64 @@ class CameraViewModel(
                     }
                 }
             }
+            is CameraEvent.GestureDetected -> {
+                if (_uiState.value.isPhotoboothMode) {
+                    startPhotoboothSequence()
+                } else {
+                    _takePhotoTrigger.tryEmit(Unit)
+                }
+            }
+            is CameraEvent.TakePhotoLocal -> {
+                _takePhotoTrigger.tryEmit(Unit)
+            }
+            is CameraEvent.ToggleFlashLocal -> {
+                val nextMode = when (_uiState.value.flashMode) {
+                    androidx.camera.core.ImageCapture.FLASH_MODE_OFF -> androidx.camera.core.ImageCapture.FLASH_MODE_ON
+                    else -> androidx.camera.core.ImageCapture.FLASH_MODE_OFF
+                }
+                _uiState.update { it.copy(flashMode = nextMode) }
+            }
+            is CameraEvent.ToggleFilterLocal -> {
+                _uiState.update { it.copy(isDigicamFilterActive = !it.isDigicamFilterActive) }
+            }
+            // ... di dalam fungsi onEvent ...
+            is CameraEvent.FlipCameraLocal -> {
+                _uiState.update {
+                    val newLens = if (it.lensFacing == androidx.camera.core.CameraSelector.LENS_FACING_BACK)
+                        androidx.camera.core.CameraSelector.LENS_FACING_FRONT
+                    else androidx.camera.core.CameraSelector.LENS_FACING_BACK
+                    it.copy(lensFacing = newLens)
+                }
+            }
+            is CameraEvent.ToggleTimerLocal -> {
+                val nextTimer = when (_uiState.value.timerSeconds) {
+                    0 -> 3; 3 -> 6; 6 -> 10; else -> 0
+                }
+                _uiState.update { it.copy(timerSeconds = nextTimer) }
+            }
+            is CameraEvent.ToggleZoomLocal -> {
+                val nextZoom = when (_uiState.value.zoomRatio) {
+                    1f -> if (_uiState.value.maxZoom >= 2f) 2f else 1f
+                    2f -> if (_uiState.value.minZoom < 1f) _uiState.value.minZoom else 1f
+                    else -> 1f
+                }
+                _uiState.update { it.copy(zoomRatio = nextZoom) }
+            }
+// ... sisa kode lainnya ...
+        }
+    }
+
+    private fun startPhotoboothSequence() {
+        viewModelScope.launch {
+            for (i in 1..4) {
+                // Set timer ke 3 detik setiap kali mau foto
+                _uiState.update { it.copy(timerSeconds = 3) }
+                _takePhotoTrigger.tryEmit(Unit) // Trigger proses hitung mundur di CameraScreen
+
+                // Tunggu 3 detik timer + 1 detik proses save
+                kotlinx.coroutines.delay(4000)
+            }
+            // TODO: Gabungkan 4 foto terakhir pakai ImageProcessor.createPhotoStrip()
         }
     }
 }
