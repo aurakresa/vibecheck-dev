@@ -9,5 +9,8 @@ sealed class RemoteEvent {
     object FlipCamera : RemoteEvent()
     object ToggleFlash : RemoteEvent()
     object ToggleTimer : RemoteEvent()
+
+    object ToggleDigicamFilter : RemoteEvent()
+    object TogglePhotoboothMode : RemoteEvent()
     data class ChangeZoom(val ratio: Float) : RemoteEvent()
 }

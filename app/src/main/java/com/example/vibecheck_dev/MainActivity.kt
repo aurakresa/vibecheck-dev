@@ -1,20 +1,33 @@
 package com.example.vibecheck_dev
 
 import android.os.Bundle
+import android.util.Log // 1. Import ini buat debugging
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.example.vibecheck_dev.data.local.UserPreferences
+import com.example.vibecheck_dev.presentation.navigation.Screen
 
-// Import semua layar dan komponen yang sudah kita buat sejauh ini
+// Import Koin biar ViewModel lu otomatis disuntik
+import org.koin.androidx.compose.koinViewModel
+
 import com.example.vibecheck_dev.ui.theme.VibeCheckdevTheme
 import com.example.vibecheck_dev.presentation.permission.PermissionScreen
 import com.example.vibecheck_dev.presentation.home.HomeScreen
@@ -22,11 +35,22 @@ import com.example.vibecheck_dev.presentation.camera.CameraScreen
 import com.example.vibecheck_dev.presentation.camera.CameraViewModel
 import com.example.vibecheck_dev.presentation.remote.RemoteScreen
 import com.example.vibecheck_dev.presentation.remote.RemoteViewModel
-import com.example.vibecheck_dev.data.repository_impl.P2pRepositoryImpl
+// HAPUS import P2pRepositoryImpl karena udah diurus Koin!
+
+// Asumsi lu udah bikin VibeBottomNav dari panduan sebelumnya ya
+import com.example.vibecheck_dev.presentation.components.VibeBottomNav
+import com.example.vibecheck_dev.presentation.auth.AuthScreen
+import com.example.vibecheck_dev.presentation.auth.LoginScreen
+import com.example.vibecheck_dev.presentation.auth.OnboardingScreen
+import com.example.vibecheck_dev.presentation.auth.ProfileSetupScreen
+import com.example.vibecheck_dev.presentation.studio.StudioScreen
+import com.example.vibecheck_dev.presentation.vault.VaultScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d("FIKAL_DEBUG", "Aplikasi VibeCheck Mulai Berjalan!") // Contoh nulis log
+
         setContent {
             VibeCheckdevTheme {
                 Surface(
@@ -42,54 +66,142 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppNavigation() {
-    // Mesin utama navigasi layar
     val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
     val context = LocalContext.current
 
-    // 1. INISIALISASI MESIN UTAMA
-    // Kita gunakan 'remember' agar mesin ini tidak dibuat ulang saat UI berubah
-    val p2pRepository = remember { P2pRepositoryImpl(context) }
+    // 1. Panggil pengelola memori lokal yang udah kita buat
+    val userPreferences = remember { UserPreferences(context) }
 
-    // 2. INISIALISASI VIEWMODEL
-    // Menyuntikkan repository ke dalam masing-masing ViewModel
-    val cameraViewModel = remember { CameraViewModel(p2pRepository) }
-    val remoteViewModel = remember { RemoteViewModel(p2pRepository) }
+    // 2. Baca data dari memori (nilainya 'null' pas lagi proses baca)
+    val isFirstTime by userPreferences.isFirstTimeFlow.collectAsState(initial = null)
+    val playerName by userPreferences.playerNameFlow.collectAsState(initial = null)
+    val isLoggedIn by userPreferences.isLoggedInFlow.collectAsState(initial = null)
 
-    NavHost(navController = navController, startDestination = "permission_screen") {
+    // 3. Tampilkan layar hitam sebentar kalau data belum selesai dibaca
+    if (isFirstTime == null || playerName == null) {
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+        return
+    }
 
-        // Layar 1: Minta Izin
-        composable("permission_screen") {
-            PermissionScreen(
-                onAllPermissionsGranted = {
-                    navController.navigate("home_screen") {
-                        popUpTo("permission_screen") { inclusive = true }
+    // 4. Logika Penentuan Layar Pertama (Routing Cerdas)
+    val startDestination = when {
+        isFirstTime == true -> Screen.Onboarding.route
+        isLoggedIn == false && playerName.isNullOrBlank() -> Screen.Auth.route // Belum login & belum punya nama lokal
+        else -> Screen.Permission.route
+    }
+
+    Scaffold(
+        bottomBar = {
+            // Sembunyikan Bottom Nav di layar Onboarding, Setup, dan Permission
+            val hideBottomNavRoutes = listOf(
+                Screen.Onboarding.route,
+                Screen.Auth.route,
+                Screen.Login.route,
+                Screen.ProfileSetup.route,
+                Screen.Permission.route
+            )
+            if (currentRoute !in hideBottomNavRoutes) {
+                VibeBottomNav(navController = navController)
+            }
+        }
+    ) { innerPadding ->
+
+        NavHost(
+            navController = navController,
+            startDestination = startDestination, // <-- Pakai hasil logika di atas
+            modifier = Modifier.padding(innerPadding)
+        ) {
+
+            // --- LAYAR SETUP & ONBOARDING ---
+            composable(Screen.Onboarding.route) {
+                OnboardingScreen(
+                    onFinishOnboarding = {
+                        // UBAH JADI Screen.Auth.route
+                        navController.navigate(Screen.Auth.route) {
+                            popUpTo(Screen.Onboarding.route) { inclusive = true }
+                        }
                     }
-                }
-            )
-        }
+                )
+            }
 
-        // Layar 2: Beranda (Pilih Mode)
-        composable("home_screen") {
-            HomeScreen(
-                onNavigateToCamera = { navController.navigate("camera_screen") },
-                onNavigateToRemote = { navController.navigate("remote_screen") }
-            )
-        }
+            composable(Screen.Auth.route) {
+                AuthScreen(
+                    onNavigateToLogin = {
+                        // Loncat ke layar form email/password (Bisa pakai Supabase Auth nanti)
+                        navController.navigate(Screen.Login.route)
+                    },
+                    onNavigateToGuest = {
+                        // Masuk mode lokal, suruh isi nickname
+                        navController.navigate(Screen.ProfileSetup.route)
+                    }
+                )
+            }
 
-        // Layar 3: Mode HP ditaruh di tripod (Host/Kamera)
-        composable("camera_screen") {
-            CameraScreen(
-                viewModel = cameraViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
-        }
+            composable(Screen.ProfileSetup.route) {
+                ProfileSetupScreen(
+                    onSaveSuccess = {
+                        navController.navigate(Screen.Permission.route) {
+                            popUpTo(Screen.Auth.route) { inclusive = true }
+                        }
+                    },
+                    userPreferences = userPreferences
+                )
+            }
 
-        // Layar 4: Mode HP dipegang tangan (Client/Remote)
-        composable("remote_screen") {
-            RemoteScreen(
-                viewModel = remoteViewModel,
-                onNavigateBack = { navController.popBackStack() }
-            )
+            composable(Screen.Login.route) {
+                LoginScreen(
+                    onLoginSuccess = {
+                        // Kalau sukses login, lempar ke Permission
+                        navController.navigate(Screen.Permission.route) {
+                            popUpTo(Screen.Auth.route) { inclusive = true }
+                        }
+                    },
+                    userPreferences = userPreferences
+                )
+            }
+
+            // --- LAYAR UTAMA (Sama kayak sebelumnya) ---
+            composable(Screen.Permission.route) {
+                PermissionScreen(
+                    onAllPermissionsGranted = {
+                        navController.navigate(Screen.Home.route) {
+                            popUpTo(Screen.Permission.route) { inclusive = true }
+                        }
+                    }
+                )
+            }
+
+            composable(Screen.Home.route) {
+                HomeScreen(
+                    onNavigateToCamera = { navController.navigate(Screen.Host.route) },
+                    onNavigateToRemote = { navController.navigate(Screen.Remote.route) }
+                )
+            }
+
+            composable(Screen.Host.route) {
+                val cameraViewModel: CameraViewModel = koinViewModel()
+                CameraScreen(
+                    viewModel = cameraViewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Remote.route) {
+                val remoteViewModel: RemoteViewModel = koinViewModel()
+                RemoteScreen(
+                    viewModel = remoteViewModel,
+                    onNavigateBack = { navController.popBackStack() }
+                )
+            }
+
+            composable(Screen.Studio.route) {
+                StudioScreen()
+            }
+            composable(Screen.Vault.route) {
+                VaultScreen()
+            }
         }
     }
 }
