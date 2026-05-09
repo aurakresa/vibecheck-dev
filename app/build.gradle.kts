@@ -10,8 +10,8 @@ android {
 
     defaultConfig {
         applicationId = "com.example.vibecheck_dev"
-        minSdk = 31
-        targetSdk = 36
+        minSdk = 26 // <--- SEKARANG MENDUKUNG ANDROID 8 KE ATAS!
+        targetSdk = 34 // (Catatan: Saya sarankan turunkan ke 34 karena API 36 masih sangat eksperimental/belum stabil)
         versionCode = 1
         versionName = "1.0"
 
@@ -37,6 +37,12 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += "/META-INF/INDEX.LIST"
+            excludes += "/META-INF/io.netty.versions.properties"
+        }
+    }
 }
 
 dependencies {
@@ -49,6 +55,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
+    implementation(libs.androidx.ui.graphics)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -63,6 +70,7 @@ dependencies {
 
     // 2. CameraX (Untuk ngambil gambar dari lensa)
     val camerax_version = "1.3.1"
+    implementation("androidx.camera:camera-core:${camerax_version}")
     implementation("androidx.camera:camera-camera2:$camerax_version")
     implementation("androidx.camera:camera-lifecycle:$camerax_version")
     implementation("androidx.camera:camera-view:$camerax_version")
@@ -78,5 +86,13 @@ dependencies {
 
     // 5. WebRTC (Untuk mancarin video P2P)
     implementation("io.getstream:stream-webrtc-android:1.1.1")
+
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    implementation("androidx.navigation:navigation-compose:2.7.5")
+
+    implementation("androidx.compose.material:material-icons-extended")
+
+    implementation("io.insert-koin:koin-androidx-compose:3.5.3")
 
 }
