@@ -1,38 +1,51 @@
 package com.example.vibecheck_dev.presentation.camera
 
+import android.Manifest
+import android.annotation.SuppressLint
 import android.app.Activity
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.ContextWrapper
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
+import android.hardware.camera2.CaptureRequest
+import android.net.Uri
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
 import android.util.Size
-import android.view.WindowManager
 import android.widget.Toast
 import androidx.annotation.OptIn
+import androidx.camera.camera2.interop.Camera2CameraControl
+import androidx.camera.camera2.interop.Camera2CameraInfo
+import androidx.camera.camera2.interop.CaptureRequestOptions
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop
 import androidx.camera.core.*
 import androidx.camera.lifecycle.ProcessCameraProvider
+import androidx.camera.video.*
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FlashOn
-import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -44,344 +57,422 @@ import com.example.vibecheck_dev.ui.theme.Y2KTypography
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.pose.PoseDetection
 import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.Executors
 
-// Fungsi bantuan untuk mencari Activity
 fun Context.findActivity(): Activity? = when (this) {
     is Activity -> this
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
 
-@OptIn(ExperimentalGetImage::class)
+@OptIn(ExperimentalGetImage::class, ExperimentalCamera2Interop::class)
 @Composable
 fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
-    // Inisialisasi ML Kit Pose Detector
-    val options = PoseDetectorOptions.Builder()
-        .setDetectorMode(PoseDetectorOptions.STREAM_MODE)
-        .build()
+    val options = PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE).build()
     val poseDetector = PoseDetection.getClient(options)
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val activity = context.findActivity()
 
-    // AMBIL STATUS KONEKSI (Apakah ada Remote yang nyambung?)
     val connectionInfo by viewModel.connectionInfo.collectAsState(initial = null)
     val isConnectedToRemote = connectionInfo?.groupFormed == true
+    val uiState by viewModel.uiState.collectAsState()
 
-    val uiState by viewModel.uiState.collectAsState() // Ambil UI State[cite: 6]
+    val is169 = uiState.aspectRatio == AspectRatio.RATIO_16_9
 
-    val imageCapture = remember { ImageCapture.Builder().build() } // CameraX Capture[cite: 6]
     val previewView = remember { PreviewView(context) }
 
-    val imageAnalysis = remember {
+    val preview = remember(uiState.aspectRatio) {
+        Preview.Builder().setTargetAspectRatio(uiState.aspectRatio).build()
+    }
+    val imageCapture = remember(uiState.aspectRatio) {
+        ImageCapture.Builder().setTargetAspectRatio(uiState.aspectRatio).build()
+    }
+    val imageAnalysis = remember(uiState.aspectRatio) {
         ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(Size(640, 480))
+            .setTargetResolution(Size(480, 360))
             .build()
-    } // CameraX Analysis[cite: 6]
+    }
+
+    val recorder = remember {
+        Recorder.Builder()
+            .setQualitySelector(QualitySelector.from(Quality.HIGHEST, FallbackStrategy.lowerQualityOrHigherThan(Quality.HD)))
+            .build()
+    }
+    val videoCapture = remember { VideoCapture.withOutput(recorder) }
 
     val backgroundExecutor = remember { Executors.newSingleThreadExecutor() }
-    val screenFlashAlpha = remember { Animatable(0f) } // Animasi Flash[cite: 6]
+    val screenFlashAlpha = remember { Animatable(0f) }
+
     var cameraControl by remember { mutableStateOf<CameraControl?>(null) }
-    var countdownDisplay by remember { mutableStateOf(0) }
+    var cameraInfo by remember { mutableStateOf<CameraInfo?>(null) }
+    var activeRecording by remember { mutableStateOf<Recording?>(null) }
+    val isRecording = activeRecording != null
+    var recordingSeconds by remember { mutableIntStateOf(0) }
+    var countdownDisplay by remember { mutableIntStateOf(0) }
+    var dynamicMinZoom by remember { mutableFloatStateOf(0.5f) }
+
+    var latestPhotoUri by remember { mutableStateOf<Uri?>(null) }
+
+    val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) { latestPhotoUri = getLatestVibeCheckImage(context) }
+
+    LaunchedEffect(isRecording) {
+        if (isRecording) {
+            recordingSeconds = 0
+            while (activeRecording != null) {
+                delay(1000)
+                recordingSeconds++
+            }
+        }
+    }
 
     DisposableEffect(Unit) {
         viewModel.onEvent(CameraEvent.StartHosting)
         onDispose {
             viewModel.onEvent(CameraEvent.StopHosting)
             backgroundExecutor.shutdown()
+            activeRecording?.stop()
         }
-    } // Lifecycle Camera[cite: 6]
-
-    // Set Zoom Ratio & Flash[cite: 6]
-    LaunchedEffect(uiState.flashMode) { imageCapture.flashMode = uiState.flashMode }
-    LaunchedEffect(uiState.zoomRatio) {
-        if (uiState.zoomRatio > 0f) cameraControl?.setZoomRatio(uiState.zoomRatio)
     }
 
-    LaunchedEffect(uiState.lensFacing) {
-        val cameraProviderFuture =
-            ProcessCameraProvider.getInstance(context) // Camera Provider[cite: 6]
+    LaunchedEffect(previewView, preview) { preview.setSurfaceProvider(previewView.surfaceProvider) }
+
+    LaunchedEffect(uiState.flashMode, imageCapture, uiState.isVideoMode, cameraControl) {
+        imageCapture.flashMode = uiState.flashMode
+        cameraControl?.let {
+            val isFlashOn = uiState.flashMode == ImageCapture.FLASH_MODE_ON
+            it.enableTorch(if (uiState.isVideoMode) isFlashOn else false)
+        }
+    }
+
+    LaunchedEffect(uiState.lensFacing, uiState.isUltrawideActive, uiState.isVideoMode, preview, imageCapture, imageAnalysis, videoCapture) {
+        val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener({
             val cameraProvider = cameraProviderFuture.get()
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
-            val cameraSelector =
-                CameraSelector.Builder().requireLensFacing(uiState.lensFacing).build()
+            val baseSelector = CameraSelector.Builder().requireLensFacing(uiState.lensFacing).build()
+            var canNativeMinZoom = false
+
+            try {
+                val filteredCameras = baseSelector.filter(cameraProvider.availableCameraInfos)
+                if (filteredCameras.isNotEmpty() && (filteredCameras.first().zoomState.value?.minZoomRatio ?: 1f) < 1f) {
+                    canNativeMinZoom = true
+                }
+            } catch (e: Exception) {}
+
+            val cameraSelector = if (uiState.isUltrawideActive && uiState.lensFacing == CameraSelector.LENS_FACING_BACK && !canNativeMinZoom) {
+                CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK)
+                    .addCameraFilter { cameraInfos ->
+                        val sorted = cameraInfos.sortedBy { info ->
+                            try {
+                                val cam2Info = Camera2CameraInfo.from(info)
+                                cam2Info.getCameraCharacteristic(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS)?.minOrNull() ?: Float.MAX_VALUE
+                            } catch (e: Exception) { Float.MAX_VALUE }
+                        }
+                        listOf(sorted.first())
+                    }.build()
+            } else { baseSelector }
 
             try {
                 cameraProvider.unbindAll()
-                val camera = cameraProvider.bindToLifecycle(
-                    lifecycleOwner, cameraSelector, preview, imageCapture, imageAnalysis
-                )
-                cameraControl = camera.cameraControl
+                val useCases = mutableListOf<UseCase>(preview)
+                if (uiState.isVideoMode) {
+                    useCases.add(videoCapture)
+                    useCases.add(imageAnalysis)
+                } else {
+                    useCases.add(imageCapture)
+                    useCases.add(imageAnalysis)
+                }
 
-                // Bikin variabel buat nyatet waktu terakhir frame dikirim
-                // Bikin variabel buat nyatet waktu terakhir frame dikirim
-                var lastAnalyzedTimestamp = 0L
+                var camera: Camera? = null
+                try {
+                    camera = cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, *useCases.toTypedArray())
+                } catch (e: IllegalArgumentException) {
+                    if (uiState.isVideoMode) {
+                        Log.w("CAMERA_LOG", "OS membatasi UseCase. Mematikan Remote Preview.")
+                        useCases.remove(imageAnalysis)
+                        camera = cameraProvider.bindToLifecycle(lifecycleOwner, cameraSelector, *useCases.toTypedArray())
+                    } else { throw e }
+                }
 
-                imageAnalysis.setAnalyzer(backgroundExecutor) { imageProxy ->
-                    val mediaImage = imageProxy.image
-                    if (mediaImage != null) {
-                        val currentTimestamp = System.currentTimeMillis()
+                cameraControl = camera?.cameraControl
+                cameraInfo = camera?.cameraInfo
 
-                        // FPS THROTTLING: Cuma kirim frame setiap ~66 milidetik (sekitar 15 FPS)
-                        if (currentTimestamp - lastAnalyzedTimestamp >= 66) {
-                            lastAnalyzedTimestamp = currentTimestamp
+                val minZ = camera?.cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f
+                if (minZ < 1f) dynamicMinZoom = minZ
 
-                            val bitmapForWebRTC = imageProxy.toBitmap()
-                            val rotation = imageProxy.imageInfo.rotationDegrees
-                            val isFront = uiState.lensFacing == androidx.camera.core.CameraSelector.LENS_FACING_FRONT
+                cameraControl?.setZoomRatio(if (uiState.isUltrawideActive && minZ >= 1f) 1f else uiState.zoomRatio)
 
-                            // Kirim ke ViewModel
-                            viewModel.onEvent(
-                                CameraEvent.SendVideoFrame(
-                                    byteArray = bitmapToByteArray(bitmapForWebRTC),
-                                    rotationDegrees = rotation,
-                                    isFrontCamera = isFront
-                                )
-                            )
-                        }
-
-                        // PROSES AI ML KIT
-                        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                        poseDetector.process(image)
-                            .addOnSuccessListener { /* TODO: Logika V-Sign / Gesture */ }
-                            .addOnFailureListener { Log.e("FIKAL_ERROR", "AI gagal: ${it.message}") }
-                            .addOnCompleteListener {
-                                // WAJIB TUTUP DI SINI SETELAH AI SELESAI BACA!
-                                imageProxy.close()
+                if (!uiState.isVideoMode) {
+                    var lastAnalyzedTimestamp = 0L
+                    imageAnalysis.setAnalyzer(backgroundExecutor) { imageProxy ->
+                        val mediaImage = imageProxy.image
+                        if (mediaImage != null) {
+                            val currentTimestamp = System.currentTimeMillis()
+                            if (currentTimestamp - lastAnalyzedTimestamp >= 66) {
+                                lastAnalyzedTimestamp = currentTimestamp
+                                viewModel.onEvent(CameraEvent.SendVideoFrame(bitmapToByteArray(imageProxy.toBitmap()), imageProxy.imageInfo.rotationDegrees, uiState.lensFacing == CameraSelector.LENS_FACING_FRONT))
                             }
-                    } else {
-                        // Kalau mediaImage gagal ditangkap, langsung tutup
-                        imageProxy.close()
+                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                            poseDetector.process(image).addOnCompleteListener { imageProxy.close() }
+                        } else { imageProxy.close() }
                     }
                 }
             } catch (exc: Exception) {
-                Log.e("CAMERA_LOG", "Gagal membuka kamera", exc)
+                Log.e("CAMERA_LOG", "Gagal bind", exc)
+                if (uiState.isUltrawideActive) {
+                    Toast.makeText(context, "OS memblokir mode ini pada lensa Ultrawide", Toast.LENGTH_SHORT).show()
+                    viewModel.onEvent(CameraEvent.SetZoomLocal(1f))
+                }
             }
         }, ContextCompat.getMainExecutor(context))
     }
 
-    // Penjepretan & Flash Screen[cite: 6]
-    // Penjepretan & Flash Screen
-    LaunchedEffect(Unit) {
-        viewModel.takePhotoTrigger.collect {
-            // JALANKAN COUNTDOWN KALAU TIMER > 0
-            if (uiState.timerSeconds > 0) {
-                countdownDisplay = uiState.timerSeconds
-                while (countdownDisplay > 0) {
-                    delay(1000)
-                    countdownDisplay--
-                }
-            }
-
-            screenFlashAlpha.snapTo(1f)
-            delay(800)
-            takePhoto(imageCapture, context) {
-                launch { screenFlashAlpha.animateTo(0f) }
-            }
+    LaunchedEffect(uiState.zoomRatio, uiState.isUltrawideActive, cameraControl, cameraInfo) {
+        cameraControl?.let { control ->
+            try {
+                val minZ = cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f
+                val maxZ = cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f
+                val applyZoom = if (uiState.isUltrawideActive && minZ >= 1f) 1f else if (uiState.zoomRatio < minZ) minZ else uiState.zoomRatio
+                control.setZoomRatio(applyZoom.coerceIn(minZ, maxZ))
+            } catch (e: Exception) {}
         }
     }
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(Color.Black)) {
-        // --- 1. AREA PREVIEW KAMERA ---
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 80.dp)
-                .border(2.dp, Color.White, RectangleShape)
-        ) {
+    LaunchedEffect(uiState.iso, uiState.shutterSpeed, cameraControl) {
+        cameraControl?.let { control ->
+            try {
+                val c2Control = Camera2CameraControl.from(control)
+                val builder = CaptureRequestOptions.Builder()
 
-            // EFEK COUNTDOWN RAKSASA (Tampil kalau countdownDisplay > 0)
-            if (countdownDisplay > 0) {
-                Box(
-                    modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = countdownDisplay.toString(),
-                        style = Y2KTypography.titleLarge.copy(fontSize = 120.sp), // Angka Super Gede
-                        color = Color.Red
-                    )
+                if (uiState.iso != 100 || uiState.shutterSpeed > 0L) {
+                    builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF)
+                    val applyIso = if (uiState.iso == 100) 800 else uiState.iso
+                    val applyShutter = if (uiState.shutterSpeed == 0L) 33333333L else uiState.shutterSpeed
+                    builder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, applyIso)
+                    builder.setCaptureRequestOption(CaptureRequest.SENSOR_EXPOSURE_TIME, applyShutter)
+                } else {
+                    builder.setCaptureRequestOption(CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON)
                 }
-            }
-            // Tampilkan Kamera Asli!
-            AndroidView(
-                factory = { previewView },
-                modifier = Modifier.fillMaxSize()
-            )
-
-            // Flash Screen Overlay
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.White.copy(alpha = screenFlashAlpha.value))
-            )
-
-            // OVERLAY RETRO (Viewfinder Frame)
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(16.dp)
-                    .size(24.dp)
-                    .border(4.dp, Color.White, RectangleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .size(24.dp)
-                    .border(4.dp, Color.White, RectangleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(16.dp)
-                    .size(24.dp)
-                    .border(4.dp, Color.White, RectangleShape)
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-                    .size(24.dp)
-                    .border(4.dp, Color.White, RectangleShape)
-            )
-
-            // Indikator REC berkedip
-            Row(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(32.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(Color.Red)
-                        .y2kBlinkEffect(800)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(text = "REC", color = Color.Red, style = Y2KTypography.bodyMedium)
-            }
+                c2Control.captureRequestOptions = builder.build()
+            } catch (e: Exception) {}
         }
+    }
 
-// --- 2. CONTROL BAR BAWAH ---
-        val connectionInfo by viewModel.connectionInfo.collectAsState(initial = null)
-        val isConnectedToRemote = connectionInfo?.groupFormed == true
-
-        val shutterInteractionSource =
-            remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-        val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-
-        if (isConnectedToRemote) {
-            // JIKA TERHUBUNG REMOTE: Sembunyikan tombol, tampilkan status
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black)
-                    .padding(16.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onNavigateBack,
-                    modifier = Modifier.border(2.dp, Color.Red, RectangleShape)
-                ) {
-                    Icon(Icons.Default.Close, contentDescription = "Exit", tint = Color.Red)
+    @SuppressLint("MissingPermission")
+    fun executeCapture() {
+        if (uiState.isVideoMode) {
+            if (activeRecording != null) {
+                activeRecording?.stop()
+                activeRecording = null
+                coroutineScope.launch { delay(500); latestPhotoUri = getLatestVibeCheckImage(context) }
+            } else {
+                val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis())
+                val contentValues = ContentValues().apply {
+                    put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+                    put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
+                    if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) put(MediaStore.Video.Media.RELATIVE_PATH, "Movies/VibeCheck")
                 }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("AI_POSE_ENGINE", color = Color.Cyan, style = Y2KTypography.bodySmall)
-                    Text(
-                        "> ACTIVE...",
-                        color = Color.Yellow,
-                        style = Y2KTypography.bodyMedium,
-                        modifier = Modifier.y2kBlinkEffect(300)
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("P2P: LINKED", color = Color.Green, style = Y2KTypography.bodySmall)
-                    Text(
-                        "> REMOTE CTRL",
-                        color = Color.Magenta,
-                        style = Y2KTypography.bodyMedium,
-                        modifier = Modifier.y2kBlinkEffect(500)
-                    )
+                val mediaStoreOutput = MediaStoreOutputOptions.Builder(context.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI)
+                    .setContentValues(contentValues).build()
+
+                val hasAudioPerm = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+                var pendingRecording = videoCapture.output.prepareRecording(context, mediaStoreOutput)
+                if (hasAudioPerm) pendingRecording = pendingRecording.withAudioEnabled()
+
+                activeRecording = pendingRecording.start(ContextCompat.getMainExecutor(context)) { event ->
+                    if (event is VideoRecordEvent.Finalize) {
+                        activeRecording = null
+                        if (!event.hasError()) Toast.makeText(context, "Video tersimpan!", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         } else {
-            // JIKA TIDAK TERHUBUNG: Tampilkan FULL CONTROL DECK ala Remote
-            // JIKA TIDAK TERHUBUNG: Tampilkan FULL CONTROL DECK ala Remote
+            coroutineScope.launch {
+                // --- HACK DEWA: PAKSA FLASH NYALA DENGAN SENTER SEBELUM FOTO ---
+                val isFlashOn = uiState.flashMode == ImageCapture.FLASH_MODE_ON
+                if (isFlashOn) {
+                    cameraControl?.enableTorch(true)
+                    delay(400) // Kasih waktu 400ms biar cahaya stabil dan fokus ngunci
+                }
+
+                screenFlashAlpha.snapTo(1f)
+                delay(100)
+                takePhoto(imageCapture, context, onPhotoSaved = {
+                    latestPhotoUri = getLatestVibeCheckImage(context)
+                }) {
+                    coroutineScope.launch {
+                        screenFlashAlpha.animateTo(0f)
+                        // MATIKAN KEMBALI SENTER SETELAH FOTO JADI
+                        if (isFlashOn) cameraControl?.enableTorch(false)
+                    }
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.takePhotoTrigger.collect {
+            coroutineScope.launch {
+                if (uiState.timerSeconds > 0 && !isRecording) {
+                    countdownDisplay = uiState.timerSeconds
+                    while (countdownDisplay > 0) { delay(1000); countdownDisplay-- }
+                }
+                executeCapture()
+            }
+        }
+    }
+
+    val shutterInteractionSource = remember { MutableInteractionSource() }
+    val haptic = LocalHapticFeedback.current
+
+    val isoList = listOf(100, 400, 800, 1600, 3200)
+    val shutterList = listOf(0L, 66666666L, 33333333L, 16666666L, 8333333L)
+    val shutterLabels = listOf("AUTO", "1/15", "1/30", "1/60", "1/120")
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
+
+        Box(modifier = Modifier.fillMaxSize().padding(bottom = if(is169) 0.dp else 120.dp)) {
+            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+
+            if (countdownDisplay > 0) {
+                Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
+                    Text(text = countdownDisplay.toString(), style = Y2KTypography.titleLarge.copy(fontSize = 180.sp), color = Color.Red)
+                }
+            }
+            Box(modifier = Modifier.fillMaxSize().background(Color.White.copy(alpha = screenFlashAlpha.value)))
+
+            if (isRecording) {
+                Row(modifier = Modifier.align(Alignment.TopStart).padding(top = 100.dp, start = 32.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(modifier = Modifier.size(12.dp).background(Color.Red, RectangleShape).y2kBlinkEffect(800))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    val mins = recordingSeconds / 60
+                    val secs = recordingSeconds % 60
+                    Text(String.format(Locale.US, "%02d:%02d", mins, secs), color = Color.Red, style = Y2KTypography.bodyMedium)
+                }
+            }
+
+            if (!isConnectedToRemote && !uiState.isVideoMode) {
+                Column(modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(
+                        modifier = Modifier.background(Color.Black.copy(0.7f)).border(1.dp, Color.Green, RectangleShape).clickable {
+                            viewModel.onEvent(CameraEvent.SetIso(isoList[(isoList.indexOf(uiState.iso) + 1) % isoList.size]))
+                        }.padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("ISO", color = Color.Green, fontSize = 10.sp, style = Y2KTypography.bodySmall)
+                        Text(if(uiState.iso == 100) "AUTO" else uiState.iso.toString(), color = Color.White, style = Y2KTypography.bodyMedium)
+                    }
+
+                    Column(
+                        modifier = Modifier.background(Color.Black.copy(0.7f)).border(1.dp, Color.Green, RectangleShape).clickable {
+                            val idx = shutterList.indexOf(uiState.shutterSpeed).takeIf { it >= 0 } ?: 0
+                            viewModel.onEvent(CameraEvent.SetShutterSpeed(shutterList[(idx + 1) % shutterList.size]))
+                        }.padding(8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("SHT", color = Color.Green, fontSize = 10.sp, style = Y2KTypography.bodySmall)
+                        val idx = shutterList.indexOf(uiState.shutterSpeed).takeIf { it >= 0 } ?: 0
+                        Text(shutterLabels[idx], color = Color.White, style = Y2KTypography.bodyMedium)
+                    }
+                }
+            }
+
+            // --- TOP OVERLAY BAR ---
             Box(
-                modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(220.dp).padding(16.dp).border(4.dp, Color.DarkGray, RectangleShape).background(Color(0xFF1A1A1A))
+                modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter).padding(top = 40.dp, start = 16.dp, end = 16.dp)
             ) {
-                // Tombol Exit di Kiri Atas
-                IconButton(onClick = onNavigateBack, modifier = Modifier.align(Alignment.TopStart).padding(8.dp).border(1.dp, Color.Red, RectangleShape)) {
+                if (!isConnectedToRemote) {
+                    val isFlashOn = uiState.flashMode == ImageCapture.FLASH_MODE_ON
+                    Box(modifier = Modifier.align(Alignment.CenterStart).size(45.dp).background(Color.Black.copy(alpha = 0.5f)).border(2.dp, Color.White, RectangleShape).clickable(enabled = !isRecording) { viewModel.onEvent(CameraEvent.ToggleFlashLocal) }, contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.FlashOn, contentDescription = "Flash", tint = if (isFlashOn) Color.Yellow else Color.White)
+                    }
+
+                    Row(modifier = Modifier.align(Alignment.Center), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        ModeControlBtn(if(uiState.timerSeconds == 0) "TMR:OFF" else "TMR:${uiState.timerSeconds}s", Color.White, !isRecording) { viewModel.onEvent(CameraEvent.ToggleTimerLocal) }
+                        ModeControlBtn(if(is169) "16:9" else "4:3", Color.Cyan, !isRecording) { viewModel.onEvent(CameraEvent.ToggleAspectRatio) }
+                        ModeControlBtn(if(uiState.isVideoMode) "VID" else "PIC", if(uiState.isVideoMode) Color.Red else Color.Cyan, !isRecording) { viewModel.onEvent(CameraEvent.ToggleVideoModeLocal) }
+                    }
+                }
+
+                Box(modifier = Modifier.align(Alignment.CenterEnd).size(45.dp).background(Color.Black.copy(alpha = 0.5f)).border(2.dp, Color.Red, RectangleShape).clickable(enabled = !isRecording) { onNavigateBack() }, contentAlignment = Alignment.Center) {
                     Icon(Icons.Default.Close, contentDescription = "Exit", tint = Color.Red)
                 }
+            }
 
-                // BARIS 1: MINI BUTTONS (Timer, Flip, Zoom)
+            if (!isConnectedToRemote && !isRecording && uiState.lensFacing == CameraSelector.LENS_FACING_BACK) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 16.dp, start = 60.dp, end = 16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = if(is169) 130.dp else 16.dp).background(Color.Black.copy(alpha = 0.6f)).border(2.dp, Color.White, RectangleShape).padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // TIMER
-                    Box(modifier = Modifier.border(1.dp, Color.White, RectangleShape).clickable { viewModel.onEvent(CameraEvent.ToggleTimerLocal) }.padding(8.dp)) {
-                        Text("TMR: ${if(uiState.timerSeconds == 0) "OFF" else "${uiState.timerSeconds}s"}", color = Color.White, style = Y2KTypography.bodySmall)
-                    }
-                    // FLIP
-                    Box(modifier = Modifier.border(1.dp, Color.White, RectangleShape).clickable { viewModel.onEvent(CameraEvent.FlipCameraLocal) }.padding(8.dp)) {
-                        Text("FLIP_CAM", color = Color.White, style = Y2KTypography.bodySmall)
-                    }
-                    // ZOOM
-                    Box(modifier = Modifier.border(1.dp, Color.White, RectangleShape).clickable { viewModel.onEvent(CameraEvent.ToggleZoomLocal) }.padding(8.dp)) {
-                        Text("ZOOM: ${uiState.zoomRatio}x", color = Color.White, style = Y2KTypography.bodySmall)
+                    val uwLabel = if (dynamicMinZoom == 0.6f) ".6" else if (dynamicMinZoom == 0.5f) ".5" else String.format(Locale.US, "%.1f", dynamicMinZoom).replace("0.", ".")
+                    val zooms = listOf(dynamicMinZoom, 1f, 2f)
+                    zooms.forEach { z ->
+                        val isSelected = (z < 1f && uiState.isUltrawideActive) || (z >= 1f && uiState.zoomRatio == z && !uiState.isUltrawideActive)
+                        val label = if (z < 1f) uwLabel else "${z.toInt()}x"
+
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.Black else Color.White,
+                            style = Y2KTypography.bodyMedium,
+                            modifier = Modifier.background(if (isSelected) Color.Cyan else Color.Transparent).clickable {
+                                viewModel.onEvent(CameraEvent.SetZoomLocal(z))
+                            }.padding(horizontal = 16.dp, vertical = 8.dp)
+                        )
                     }
                 }
+            }
+        }
 
-                // BARIS 2: MAIN BUTTONS (Flash, Capture, Filter)
-                Row(
-                    modifier = Modifier.fillMaxSize().padding(top = 60.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val isFlashOn = uiState.flashMode == androidx.camera.core.ImageCapture.FLASH_MODE_ON
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(modifier = Modifier.size(60.dp).border(2.dp, Color.White, RectangleShape).clickable { viewModel.onEvent(CameraEvent.ToggleFlashLocal) }, contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.FlashOn, contentDescription = "Flash", tint = if (isFlashOn) Color.Yellow else Color.White)
+        val bottomBarBg = if (is169) Color.Black.copy(alpha = 0.5f) else Color(0xFF1A1A1A)
+        Box(modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(120.dp).background(bottomBarBg).border(if(is169) 0.dp else 2.dp, Color.DarkGray, RectangleShape)) {
+            if (isConnectedToRemote) {
+                Column(modifier = Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Text("P2P: LINKED", color = Color.Green, style = Y2KTypography.bodyMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("> REMOTE CTRL ACTIVE <", color = Color.Magenta, style = Y2KTypography.bodyLarge, modifier = Modifier.y2kBlinkEffect(500))
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp)) {
+
+                    if (!isRecording) {
+                        Box(modifier = Modifier.align(Alignment.CenterStart)) {
+                            AlbumThumbnail(uri = latestPhotoUri) {
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    type = "image/*"
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                try { context.startActivity(intent) } catch (e: Exception) { Log.e("ALBUM", "Gagal buka galeri") }
+                            }
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("FLASH", color = Color.White, style = Y2KTypography.bodySmall)
                     }
 
-                    // TOMBOL SHUTTER RAKSASA LOKAL
-                    Box(modifier = Modifier.size(90.dp).y2kPressEffect(shutterInteractionSource)
+                    Box(modifier = Modifier.align(Alignment.Center).size(70.dp).y2kPressEffect(shutterInteractionSource)
                         .clickable(interactionSource = shutterInteractionSource, indication = null) {
                             haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                             viewModel.onEvent(CameraEvent.TakePhotoLocal)
-                        }.background(Color.Magenta).border(4.dp, Color.White, RectangleShape),
+                        }.background(when { isRecording -> Color.Red; uiState.isVideoMode -> Color.DarkGray; else -> Color.Magenta }).border(4.dp, Color.White, RectangleShape),
                         contentAlignment = Alignment.Center
-                    ) { Text("SNAP", color = Color.White, style = Y2KTypography.bodyMedium) }
+                    ) {
+                        if (isRecording) { Box(modifier = Modifier.size(24.dp).background(Color.White, RectangleShape)) }
+                        else if (uiState.isVideoMode) { Box(modifier = Modifier.size(24.dp).background(Color.Red, RectangleShape)) }
+                    }
 
-                    // FILTER
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Box(modifier = Modifier.size(60.dp).border(2.dp, Color.White, RectangleShape).clickable { viewModel.onEvent(CameraEvent.ToggleFilterLocal) }, contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.CameraAlt, contentDescription = "Filter", tint = if (uiState.isDigicamFilterActive) Color.Cyan else Color.White)
+                    if (!isRecording) {
+                        Box(modifier = Modifier.align(Alignment.CenterEnd).border(2.dp, Color.White, RectangleShape).clickable {
+                            if (uiState.isUltrawideActive) viewModel.onEvent(CameraEvent.SetZoomLocal(1f))
+                            viewModel.onEvent(CameraEvent.FlipCameraLocal)
+                        }.padding(12.dp)) {
+                            Text("FLIP", color = Color.White, style = Y2KTypography.bodySmall)
                         }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text("RETRO", color = Color.White, style = Y2KTypography.bodySmall)
                     }
                 }
             }
@@ -389,41 +480,101 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
     }
 }
 
-private fun takePhoto(imageCapture: ImageCapture, context: Context, onCaptureComplete: () -> Unit) {
-    val name =
-        SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis())
+fun getLatestVibeCheckImage(context: Context): Uri? {
+    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+    } else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+
+    val projection = arrayOf(MediaStore.Images.Media._ID)
+    val selection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+        "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
+    } else "${MediaStore.Images.Media.DATA} LIKE ?"
+
+    val selectionArgs = arrayOf("%VibeCheck%")
+    val sortOrder = "${MediaStore.Images.Media.DATE_ADDED} DESC"
+
+    try {
+        context.contentResolver.query(collection, projection, selection, selectionArgs, sortOrder)?.use { cursor ->
+            if (cursor.moveToFirst()) {
+                val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
+                val id = cursor.getLong(idColumn)
+                return ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id)
+            }
+        }
+    } catch (e: Exception) { Log.e("ALBUM", "Error getting latest photo", e) }
+    return null
+}
+
+@Composable
+fun AlbumThumbnail(uri: Uri?, onClick: () -> Unit) {
+    val context = LocalContext.current
+    var bitmap by remember(uri) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+
+    LaunchedEffect(uri) {
+        if (uri != null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val bmp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        android.graphics.ImageDecoder.decodeBitmap(android.graphics.ImageDecoder.createSource(context.contentResolver, uri))
+                    } else {
+                        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                    }
+                    bitmap = bmp.asImageBitmap()
+                } catch (e: Exception) { Log.e("ALBUM", "Failed to load thumb", e) }
+            }
+        }
+    }
+
+    Box(modifier = Modifier.size(50.dp).background(Color.DarkGray, RectangleShape).border(2.dp, Color.White, RectangleShape).clickable { onClick() }, contentAlignment = Alignment.Center) {
+        if (bitmap != null) {
+            Image(bitmap = bitmap!!, contentDescription = "Album", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        } else {
+            Text("ALBUM", color = Color.White, fontSize = 9.sp, style = Y2KTypography.bodySmall)
+        }
+    }
+}
+
+fun takePhoto(imageCapture: ImageCapture, context: Context, onPhotoSaved: () -> Unit, onCaptureComplete: () -> Unit) {
+    val name = SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", Locale.US).format(System.currentTimeMillis())
     val contentValues = ContentValues().apply {
         put(MediaStore.MediaColumns.DISPLAY_NAME, name)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) put(
-            MediaStore.Images.Media.RELATIVE_PATH,
-            "Pictures/VibeCheck"
-        )
-    } // Menyimpan gambar via MediaStore[cite: 6]
-    val outputOptions = ImageCapture.OutputFileOptions.Builder(
-        context.contentResolver,
-        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-        contentValues
-    ).build()
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VibeCheck")
+    }
+    val outputOptions = ImageCapture.OutputFileOptions.Builder(context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues).build()
 
-    imageCapture.takePicture(
-        outputOptions, ContextCompat.getMainExecutor(context),
+    imageCapture.takePicture(outputOptions, ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
             override fun onError(exc: ImageCaptureException) {
+                Log.e("FIKAL_ERROR", "Gagal menyimpan foto", exc)
                 onCaptureComplete()
             }
-
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                 Toast.makeText(context, "Foto tersimpan!", Toast.LENGTH_SHORT).show()
+                onPhotoSaved()
                 onCaptureComplete()
             }
         }
-    ) // Callback CameraX[cite: 6]
+    )
 }
 
-private fun bitmapToByteArray(bitmap: android.graphics.Bitmap): ByteArray {
+fun bitmapToByteArray(bitmap: android.graphics.Bitmap): ByteArray {
     val stream = java.io.ByteArrayOutputStream()
-    // Kualitas 15-20 udah cukup buat preview P2P biar gak patah-patah
     bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 15, stream)
     return stream.toByteArray()
+}
+
+@Composable
+fun ProControlBtn(label: String, value: String, onClick: () -> Unit) {
+    Column(modifier = Modifier.background(Color.Black.copy(alpha = 0.7f)).border(1.dp, Color.Green, RectangleShape).clickable { onClick() }.padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = Color.Green, fontSize = 10.sp)
+        Text(value, color = Color.White, style = Y2KTypography.bodyMedium)
+    }
+}
+
+@Composable
+fun ModeControlBtn(txt: String, color: Color, enabled: Boolean, onClick: () -> Unit) {
+    Box(modifier = Modifier.background(Color.Black.copy(alpha = 0.5f)).border(2.dp, color, RectangleShape).clickable(enabled) { onClick() }.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
+        Text(txt, color = color, style = Y2KTypography.bodySmall)
+    }
 }

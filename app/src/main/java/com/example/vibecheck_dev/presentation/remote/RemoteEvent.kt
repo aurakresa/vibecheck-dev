@@ -13,4 +13,9 @@ sealed class RemoteEvent {
     object ToggleDigicamFilter : RemoteEvent()
     object TogglePhotoboothMode : RemoteEvent()
     data class ChangeZoom(val ratio: Float) : RemoteEvent()
+
+    object ToggleAspectRatio : RemoteEvent()
+    object ToggleVideoMode : RemoteEvent()
+    data class SetIso(val iso: Int) : RemoteEvent()
+    data class SetShutterSpeed(val speed: Long) : RemoteEvent()
 }

@@ -78,6 +78,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$camerax_version")
     implementation("androidx.camera:camera-view:$camerax_version")
 
+    implementation("androidx.camera:camera-video:1.3.0")
+
     // 3. Ktor Server (Sebagai pengganti "shelf" di Flutter buat Local Server & WebSocket)
     val ktor_version = "2.3.7"
     implementation("io.ktor:ktor-server-core:$ktor_version")
