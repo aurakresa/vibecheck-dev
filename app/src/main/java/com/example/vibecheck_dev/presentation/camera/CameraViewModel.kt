@@ -85,6 +85,24 @@ class CameraViewModel(
                             _takePhotoTrigger.tryEmit(Unit)
                         }
                     }
+                    // --- TAMBAHIN KODE INI DI DALAM WHEN INCOMING MESSAGES ---
+                    message == "CMD_TOGGLE_ASPECT" -> {
+                        val newRatio = if (_uiState.value.aspectRatio == androidx.camera.core.AspectRatio.RATIO_4_3) {
+                            androidx.camera.core.AspectRatio.RATIO_16_9
+                        } else androidx.camera.core.AspectRatio.RATIO_4_3
+                        _uiState.update { it.copy(aspectRatio = newRatio) }
+                    }
+                    message == "CMD_TOGGLE_VIDEO" -> {
+                        _uiState.update { it.copy(isVideoMode = !it.isVideoMode) }
+                    }
+                    message.startsWith("CMD_ISO_") -> {
+                        val iso = message.removePrefix("CMD_ISO_").toIntOrNull() ?: 100
+                        _uiState.update { it.copy(iso = iso) }
+                    }
+                    message.startsWith("CMD_SHT_") -> {
+                        val sht = message.removePrefix("CMD_SHT_").toLongOrNull() ?: 0L
+                        _uiState.update { it.copy(shutterSpeed = sht) }
+                    }
                 }
             }
         }
@@ -148,13 +166,44 @@ class CameraViewModel(
                 _uiState.update { it.copy(timerSeconds = nextTimer) }
             }
             is CameraEvent.ToggleZoomLocal -> {
-                val nextZoom = when (_uiState.value.zoomRatio) {
-                    1f -> if (_uiState.value.maxZoom >= 2f) 2f else 1f
-                    2f -> if (_uiState.value.minZoom < 1f) _uiState.value.minZoom else 1f
-                    else -> 1f
+                // Siklus: 1.0x (Wide) -> 2.0x (Zoom) -> 0.5x (Ultrawide) -> Balik ke 1.0x
+                when (_uiState.value.zoomRatio) {
+                    1f -> { // Ke 2x Zoom (Tetap di lensa utama)
+                        _uiState.update { it.copy(zoomRatio = 2f, isUltrawideActive = false) }
+                    }
+                    2f -> { // Ke 0.5x Ultrawide (Harus pindah lensa)
+                        _uiState.update { it.copy(zoomRatio = 0.5f, isUltrawideActive = true) }
+                    }
+                    else -> { // Balik ke 1x Normal
+                        _uiState.update { it.copy(zoomRatio = 1f, isUltrawideActive = false) }
+                    }
                 }
-                _uiState.update { it.copy(zoomRatio = nextZoom) }
             }
+
+            is CameraEvent.SetZoomLocal -> {
+                // Kalau milih 0.5, otomatis trigger mode Ultrawide
+                val isUltrawide = event.zoom < 1f
+                _uiState.update { it.copy(zoomRatio = event.zoom, isUltrawideActive = isUltrawide) }
+            }
+            is CameraEvent.ToggleVideoModeLocal -> {
+                _uiState.update { it.copy(isVideoMode = !it.isVideoMode) }
+            }
+            // --- TAMBAHAN EVENT BARU ---
+            is CameraEvent.ToggleAspectRatio -> {
+                val newRatio = if (_uiState.value.aspectRatio == androidx.camera.core.AspectRatio.RATIO_4_3) {
+                    androidx.camera.core.AspectRatio.RATIO_16_9
+                } else {
+                    androidx.camera.core.AspectRatio.RATIO_4_3
+                }
+                _uiState.update { it.copy(aspectRatio = newRatio) }
+            }
+            is CameraEvent.SetIso -> {
+                _uiState.update { it.copy(iso = event.iso) }
+            }
+            is CameraEvent.SetShutterSpeed -> {
+                _uiState.update { it.copy(shutterSpeed = event.speed) }
+            }
+
 // ... sisa kode lainnya ...
         }
     }

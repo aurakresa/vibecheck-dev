@@ -4,6 +4,8 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Warning
@@ -11,25 +13,29 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.example.vibecheck_dev.presentation.components.y2kGlitchEffect
+import com.example.vibecheck_dev.ui.theme.Y2KTypography
 
 @Composable
 fun PermissionScreen(
     onAllPermissionsGranted: () -> Unit
 ) {
-    // 1. Logika Izin yang TEGAS berdasarkan versi OS
+    // 1. TAMBAHAN: Kita selipkan RECORD_AUDIO di sini!
     val permissionsToRequest = remember {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            // KHUSUS ANDROID 13 KE ATAS: Kamera & Perangkat Sekitar (TANPA LOKASI)
             arrayOf(
                 Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO, // Izin Mic
                 Manifest.permission.NEARBY_WIFI_DEVICES
             )
         } else {
-            // KHUSUS ANDROID 12 KE BAWAH: Kamera & Lokasi
             arrayOf(
                 Manifest.permission.CAMERA,
+                Manifest.permission.RECORD_AUDIO, // Izin Mic
                 Manifest.permission.ACCESS_FINE_LOCATION
             )
         }
@@ -37,7 +43,6 @@ fun PermissionScreen(
 
     var showRationale by remember { mutableStateOf(true) }
 
-    // 2. Launcher peminta izin bawaan Jetpack Compose
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissionsMap ->
@@ -47,34 +52,31 @@ fun PermissionScreen(
         }
     }
 
-    // 3. Antarmuka (UI) Layar Izin
-    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black).padding(24.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+            modifier = Modifier.fillMaxWidth().border(3.dp, Color.Cyan, RectangleShape).background(Color(0xFF001A1A)).padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = Icons.Default.Warning,
                 contentDescription = "Ikon Peringatan",
-                modifier = Modifier.size(80.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Text(
-                text = "Akses Dibutuhkan",
-                style = MaterialTheme.typography.headlineMedium
+                modifier = Modifier.size(64.dp).y2kGlitchEffect(),
+                tint = Color.Yellow
             )
 
             Spacer(modifier = Modifier.height(16.dp))
 
+            Text("SYSTEM_REQ.cfg", style = Y2KTypography.titleLarge, color = Color.Cyan)
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             Text(
-                text = "Aplikasi Asisten Kamera membutuhkan akses Kamera untuk mengambil gambar, dan akses Lokasi/Perangkat Sekitar agar kedua HP dapat saling terhubung tanpa internet.",
-                style = MaterialTheme.typography.bodyLarge,
+                text = "VibeCheck butuh akses ke Hardware Kamera, Mikrofon (Audio), dan Modul Wi-Fi P2P buat transmisi data. Berikan akses untuk melanjutkan operasi.",
+                style = Y2KTypography.bodyMedium,
+                color = Color.LightGray,
                 textAlign = TextAlign.Center
             )
 
@@ -83,12 +85,13 @@ fun PermissionScreen(
             Button(
                 onClick = {
                     showRationale = false
-                    // Menjalankan pop-up dialog sistem Android
                     permissionLauncher.launch(permissionsToRequest)
                 },
-                modifier = Modifier.fillMaxWidth().height(50.dp)
+                colors = ButtonDefaults.buttonColors(containerColor = Color.Green),
+                shape = RectangleShape,
+                modifier = Modifier.fillMaxWidth().border(2.dp, Color.White, RectangleShape)
             ) {
-                Text("Berikan Izin Akses")
+                Text("GRANT_ACCESS >>", color = Color.Black, style = Y2KTypography.bodyLarge, modifier = Modifier.padding(vertical = 8.dp))
             }
         }
     }

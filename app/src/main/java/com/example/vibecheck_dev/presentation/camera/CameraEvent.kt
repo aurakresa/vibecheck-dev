@@ -14,4 +14,11 @@ sealed class CameraEvent {
     object FlipCameraLocal : CameraEvent()
     object ToggleTimerLocal : CameraEvent()
     object ToggleZoomLocal : CameraEvent()
+    object ToggleAspectRatio : CameraEvent()
+    object ToggleVideoModeLocal : CameraEvent()
+    data class SetZoomLocal(val zoom: Float) : CameraEvent()
+
+    data class SetIso(val iso: Int) : CameraEvent()
+
+    data class SetShutterSpeed(val speed: Long) : CameraEvent()
 }

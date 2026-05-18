@@ -79,32 +79,24 @@ fun AppNavigation() {
     val playerName by userPreferences.playerNameFlow.collectAsState(initial = null)
     val isLoggedIn by userPreferences.isLoggedInFlow.collectAsState(initial = null)
 
+    val showBottomNav = currentRoute in listOf(Screen.Home.route, Screen.Studio.route, Screen.Vault.route)
     // 3. Tampilkan layar hitam sebentar kalau data belum selesai dibaca
-    if (isFirstTime == null || playerName == null) {
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+    if (isFirstTime == null || isLoggedIn == null) {
+        // Tampilkan layar hitam kosong sementara memuat DataStore
         return
     }
 
     // 4. Logika Penentuan Layar Pertama (Routing Cerdas)
     val startDestination = when {
         isFirstTime == true -> Screen.Onboarding.route
-        isLoggedIn == false && playerName.isNullOrBlank() -> Screen.Auth.route // Belum login & belum punya nama lokal
-        else -> Screen.Permission.route
+        isLoggedIn == false -> Screen.Auth.route // Atau rute login lu
+        else -> Screen.Permission.route // Nanti PermissionScreen yang ngecek otomatis kalau izin udah ada
     }
 
     Scaffold(
         bottomBar = {
             // Sembunyikan Bottom Nav di layar Onboarding, Setup, dan Permission
-            val hideBottomNavRoutes = listOf(
-                Screen.Onboarding.route,
-                Screen.Auth.route,
-                Screen.Login.route,
-                Screen.ProfileSetup.route,
-                Screen.Permission.route
-            )
-            if (currentRoute !in hideBottomNavRoutes) {
-                VibeBottomNav(navController = navController)
-            }
+            if (showBottomNav) VibeBottomNav(navController)
         }
     ) { innerPadding ->
 

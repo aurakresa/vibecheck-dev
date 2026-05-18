@@ -1,6 +1,7 @@
 package com.example.vibecheck_dev.presentation.remote
 
 import android.graphics.Bitmap
+import androidx.camera.core.AspectRatio
 
 data class RemoteUiState(
     val minZoom: Float = 1f,
@@ -15,5 +16,11 @@ data class RemoteUiState(
     val isPhotoboothMode: Boolean = false,
 
     // --- TAMBAHAN BARU ---
-    val isDiscovering: Boolean = false
+    val isDiscovering: Boolean = false,
+    // --- STATE BARU Y2K PRO ---
+    val isVideoMode: Boolean = false,
+    val aspectRatio: Int = AspectRatio.RATIO_4_3,
+    val iso: Int = 100,
+    val shutterSpeed: Long = 0L,
+    val isRecording: Boolean = false // Simulasi status rekaman di Remote
 )
