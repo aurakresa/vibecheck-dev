@@ -51,11 +51,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
-import com.example.vibecheck_dev.presentation.components.PoseOverlay
 import com.example.vibecheck_dev.presentation.components.y2kBlinkEffect
 import com.example.vibecheck_dev.presentation.components.y2kPressEffect
 import com.example.vibecheck_dev.ui.theme.Y2KTypography
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.pose.PoseDetection
+import com.google.mlkit.vision.pose.defaults.PoseDetectorOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -73,37 +74,15 @@ fun Context.findActivity(): Activity? = when (this) {
 @OptIn(ExperimentalGetImage::class, ExperimentalCamera2Interop::class)
 @Composable
 fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
+    val options = PoseDetectorOptions.Builder().setDetectorMode(PoseDetectorOptions.STREAM_MODE).build()
+    val poseDetector = PoseDetection.getClient(options)
 
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    // --- STATE UNTUK AI POSE DIRECTOR (REAL-TIME TRACKING) ---
-    var suggestedPose by remember { mutableStateOf("") }
-    var realTimeBones by remember { mutableStateOf<List<com.example.vibecheck_dev.domain.util.PoseBone>>(emptyList()) }
-
-    var suggestedGhostPose by remember { mutableStateOf<com.example.vibecheck_dev.domain.util.GhostPose?>(null) }
-
-    val uiState by viewModel.uiState.collectAsState()
-
-    // --- INISIALISASI MATA AI ---
-    val poseAnalyzer = remember(uiState.lensFacing) {
-        com.example.vibecheck_dev.domain.util.PoseAnalyzer(
-            isFrontCamera = uiState.lensFacing == CameraSelector.LENS_FACING_FRONT,
-            onBonesUpdated = { bones ->
-                realTimeBones = bones
-            },
-            onUserConfused = { userContext ->
-                // Kalau user diam 4 detik, kasih Object Ghost Pose!
-                suggestedGhostPose = when (userContext) {
-                    "HANDS_DOWN" -> com.example.vibecheck_dev.domain.util.GhostPoseDictionary.SASSY_HIP
-                    else -> com.example.vibecheck_dev.domain.util.GhostPoseDictionary.PEACE_Y2K
-                }
-            }
-        )
-    }
-
     val connectionInfo by viewModel.connectionInfo.collectAsState(initial = null)
     val isConnectedToRemote = connectionInfo?.groupFormed == true
+    val uiState by viewModel.uiState.collectAsState()
 
     val is169 = uiState.aspectRatio == AspectRatio.RATIO_16_9
 
@@ -235,16 +214,16 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                 if (!uiState.isVideoMode) {
                     var lastAnalyzedTimestamp = 0L
                     imageAnalysis.setAnalyzer(backgroundExecutor) { imageProxy ->
-                        val currentTimestamp = System.currentTimeMillis()
-                        if (currentTimestamp - lastAnalyzedTimestamp >= 66) {
-                            lastAnalyzedTimestamp = currentTimestamp
-                            // Convert image to bitmap for P2P before the AI consumes and closes it
-                            val bmp = imageProxy.toBitmap()
-                            viewModel.onEvent(CameraEvent.SendVideoFrame(bitmapToByteArray(bmp), imageProxy.imageInfo.rotationDegrees, uiState.lensFacing == CameraSelector.LENS_FACING_FRONT))
-                        }
-
-                        // Lempar gambar ke otak AI buat dicek posenya
-                        poseAnalyzer.analyze(imageProxy)
+                        val mediaImage = imageProxy.image
+                        if (mediaImage != null) {
+                            val currentTimestamp = System.currentTimeMillis()
+                            if (currentTimestamp - lastAnalyzedTimestamp >= 66) {
+                                lastAnalyzedTimestamp = currentTimestamp
+                                viewModel.onEvent(CameraEvent.SendVideoFrame(bitmapToByteArray(imageProxy.toBitmap()), imageProxy.imageInfo.rotationDegrees, uiState.lensFacing == CameraSelector.LENS_FACING_FRONT))
+                            }
+                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+                            poseDetector.process(image).addOnCompleteListener { imageProxy.close() }
+                        } else { imageProxy.close() }
                     }
                 }
             } catch (exc: Exception) {
@@ -362,16 +341,8 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
 
         Box(modifier = Modifier.fillMaxSize().padding(bottom = if(is169) 0.dp else 120.dp)) {
-            // LAYER 1: KAMERA ASLI
             AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
 
-            // LAYER 2: OVERLAY STICKMAN REAL-TIME + BAYANGAN GHOST
-            PoseOverlay(
-                ghostPose = suggestedGhostPose, // <- Ngirim Data Bayangan (Bisa Null)
-                realTimeBones = realTimeBones   // <- Ngirim Data Gerakan Asli
-            )
-
-            // LAYER 3: HITUNG MUNDUR (Kalau timer nyala)
             if (countdownDisplay > 0) {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)), contentAlignment = Alignment.Center) {
                     Text(text = countdownDisplay.toString(), style = Y2KTypography.titleLarge.copy(fontSize = 180.sp), color = Color.Red)
