@@ -23,5 +23,6 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector?
     object Remote : Screen("remote_screen", "REMOTE", Icons.Default.PhoneAndroid)
 
     object Studio : Screen("studio_screen", "STUDIO", Icons.Default.Edit) // Import Icons.Default.Edit
-    object Vault : Screen("vault_screen", "VAULT", Icons.Default.PhotoLibrary) // Import Icons.Default.PhotoLibrary
+
+    object Purikura : Screen("purikura_screen", "PURIKURA", Icons.Default.PhotoLibrary) // Import Icons.Default.PhotoLibrary
 }
