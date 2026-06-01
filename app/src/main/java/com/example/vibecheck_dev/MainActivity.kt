@@ -45,7 +45,6 @@ import com.example.vibecheck_dev.presentation.auth.OnboardingScreen
 import com.example.vibecheck_dev.presentation.auth.ProfileSetupScreen
 import com.example.vibecheck_dev.presentation.studio.StudioScreen
 import com.example.vibecheck_dev.presentation.studio.StudioViewModel
-import com.example.vibecheck_dev.presentation.vault.VaultScreen
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -80,7 +79,7 @@ fun AppNavigation() {
     val playerName by userPreferences.playerNameFlow.collectAsState(initial = null)
     val isLoggedIn by userPreferences.isLoggedInFlow.collectAsState(initial = null)
 
-    val showBottomNav = currentRoute in listOf(Screen.Home.route, Screen.Studio.route, Screen.Vault.route)
+    val showBottomNav = currentRoute in listOf(Screen.Home.route, Screen.Studio.route, Screen.Purikura.route)
     // 3. Tampilkan layar hitam sebentar kalau data belum selesai dibaca
     if (isFirstTime == null || isLoggedIn == null) {
         // Tampilkan layar hitam kosong sementara memuat DataStore
@@ -193,8 +192,9 @@ fun AppNavigation() {
                 val studioViewModel: StudioViewModel = koinViewModel()
                 StudioScreen(viewModel = studioViewModel)
             }
-            composable(Screen.Vault.route) {
-                VaultScreen()
+            composable(Screen.Purikura.route) {
+                val purikuraViewModel: com.example.vibecheck_dev.presentation.purikura.PurikuraViewModel = koinViewModel()
+                com.example.vibecheck_dev.presentation.purikura.PurikuraScreen(viewModel = purikuraViewModel)
             }
         }
     }

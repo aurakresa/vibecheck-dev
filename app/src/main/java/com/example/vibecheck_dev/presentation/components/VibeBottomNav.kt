@@ -15,7 +15,7 @@ import com.example.vibecheck_dev.ui.theme.Y2KTypography
 @Composable
 fun VibeBottomNav(navController: NavController) {
     // 1. UPDATE: Rute Bottom Nav sekarang Home, Studio, dan Vault
-    val items = listOf(Screen.Home, Screen.Studio, Screen.Vault)
+    val items = listOf(Screen.Home, Screen.Studio, Screen.Purikura)
 
     NavigationBar(
         containerColor = Color.Black,

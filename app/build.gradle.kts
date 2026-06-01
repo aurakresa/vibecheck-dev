@@ -102,4 +102,6 @@ dependencies {
 
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
+    implementation("androidx.print:print:1.0.0")
+
 }
