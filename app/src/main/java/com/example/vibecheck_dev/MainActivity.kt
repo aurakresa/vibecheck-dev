@@ -44,6 +44,7 @@ import com.example.vibecheck_dev.presentation.auth.LoginScreen
 import com.example.vibecheck_dev.presentation.auth.OnboardingScreen
 import com.example.vibecheck_dev.presentation.auth.ProfileSetupScreen
 import com.example.vibecheck_dev.presentation.studio.StudioScreen
+import com.example.vibecheck_dev.presentation.studio.StudioViewModel
 import com.example.vibecheck_dev.presentation.vault.VaultScreen
 
 class MainActivity : ComponentActivity() {
@@ -189,7 +190,8 @@ fun AppNavigation() {
             }
 
             composable(Screen.Studio.route) {
-                StudioScreen()
+                val studioViewModel: StudioViewModel = koinViewModel()
+                StudioScreen(viewModel = studioViewModel)
             }
             composable(Screen.Vault.route) {
                 VaultScreen()
