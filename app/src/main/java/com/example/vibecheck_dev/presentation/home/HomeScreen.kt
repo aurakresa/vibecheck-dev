@@ -1,44 +1,107 @@
 package com.example.vibecheck_dev.presentation.home
 
+import android.net.Uri
+import android.os.Build
+import android.provider.MediaStore
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Camera
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Menu
-import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.vibecheck_dev.presentation.components.y2kBlinkEffect
 import com.example.vibecheck_dev.ui.theme.Y2KTypography
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+
+// Matriks Piksel Raksasa untuk Menu Utama
+val PIXEL_CAMERA = listOf(
+    "                  ",
+    "     XXXXXX       ",
+    "   XXX    XXX     ",
+    "  XXXXXXXXXXXXXX  ",
+    "  XX          XX  ",
+    "  XX   XXXX   XX  ",
+    "  XX  XX  XX  XX  ",
+    "  XX  XX  XX  XX  ",
+    "  XX   XXXX   XX  ",
+    "  XX          XX  ",
+    "  XXXXXXXXXXXXXX  ",
+    "                  "
+)
+
+val PIXEL_REMOTE = listOf(
+    "                  ",
+    "      XXXXXX      ",
+    "     XX    XX     ",
+    "     XX XX XX     ",
+    "     XX    XX     ",
+    "     XXXXXXXX     ",
+    "     XX    XX     ",
+    "     XX XX XX     ",
+    "     XX    XX     ",
+    "      XXXXXX      ",
+    "                  "
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onNavigateToCamera: () -> Unit,
-    onNavigateToRemote: () -> Unit
+    onNavigateToRemote: () -> Unit,
+    onLogout: () -> Unit = {},
+    isGuestMode: Boolean = false,
+    guestName: String = "GUEST"
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val coroutineScope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     // State untuk masing-masing Dialog
-    var showProfileDialog by remember { mutableStateOf(false) }
+    var showEditProfileDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showAboutDialog by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+
+    // State Data Profil
+    // Jika User Asli (bukan Guest), set default name ke guestName yang didapat dari DataStore (kalau ada)
+    var editUsername by remember { mutableStateOf(if (isGuestMode) guestName else "ADMIN / USER") }
+    var editPassword by remember { mutableStateOf("") }
+    var profileImageUri by remember { mutableStateOf<Uri?>(null) }
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? -> uri?.let { profileImageUri = it } }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
@@ -51,28 +114,105 @@ fun HomeScreen(
                     .width(300.dp)
                     .border(2.dp, Color.Cyan, RectangleShape)
             ) {
-                Column(modifier = Modifier.padding(24.dp).fillMaxHeight()) {
+                Column(
+                    modifier = Modifier.padding(24.dp).fillMaxHeight(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
                     Text(
                         text = "SYS_MENU.exe",
                         style = Y2KTypography.titleLarge,
-                        color = Color.Magenta
+                        color = Color.Magenta,
+                        modifier = Modifier.align(Alignment.Start)
                     )
                     Spacer(modifier = Modifier.height(12.dp))
                     HorizontalDivider(color = Color.Cyan, thickness = 2.dp)
                     Spacer(modifier = Modifier.height(32.dp))
 
-                    // Menu dengan UI Hacker & Action Trigger
-                    DrawerMenuItem(title = "PROFILE.cfg") {
-                        coroutineScope.launch { drawerState.close() }
-                        showProfileDialog = true
-                    }
-                    DrawerMenuItem(title = "THEME.ini") {
-                        coroutineScope.launch { drawerState.close() }
-                        showThemeDialog = true
-                    }
-                    DrawerMenuItem(title = "ABOUT.txt") {
-                        coroutineScope.launch { drawerState.close() }
-                        showAboutDialog = true
+                    val fontResId = context.resources.getIdentifier("press_start", "font", context.packageName)
+                    val pixelFontFamily = if (fontResId != 0) FontFamily(Font(fontResId)) else FontFamily.Monospace
+
+                    // --- LOGIKA TAMPILAN SIDEBAR (GUEST vs USER ASLI) ---
+                    if (isGuestMode) {
+                        // TAMPILAN GUEST: Foto Dummy, Nama Guest, Tanpa Edit Profile
+                        Box(
+                            modifier = Modifier
+                                .size(130.dp)
+                                .background(Color.Black)
+                                .border(4.dp, Color.DarkGray, RectangleShape)
+                                .padding(6.dp)
+                                .border(2.dp, Color.Cyan, RectangleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Person, contentDescription = "Guest", tint = Color.DarkGray, modifier = Modifier.size(80.dp))
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = guestName.uppercase(),
+                            color = Color.White,
+                            fontFamily = pixelFontFamily,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            DrawerMenuItem(title = "THEME.ini") {
+                                coroutineScope.launch { drawerState.close() }
+                                showThemeDialog = true
+                            }
+                            DrawerMenuItem(title = "ABOUT.txt") {
+                                coroutineScope.launch { drawerState.close() }
+                                showAboutDialog = true
+                            }
+                        }
+
+                    } else {
+                        // TAMPILAN USER ASLI: Bisa ganti foto, muncul Edit Profile
+                        Box(
+                            modifier = Modifier
+                                .size(130.dp)
+                                .background(Color.Black)
+                                .border(4.dp, Color.DarkGray, RectangleShape)
+                                .padding(6.dp)
+                                .border(2.dp, Color.Cyan, RectangleShape)
+                                .clickable { imagePickerLauncher.launch("image/*") },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            NativeProfileImage(profileImageUri) // Pakai NativeProfileImage (bisa load dari galeri)
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = editUsername.uppercase(),
+                            color = Color.White,
+                            fontFamily = pixelFontFamily,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(32.dp))
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            // EDIT PROFILE HANYA MUNCUL DI SINI (USER ASLI)
+                            DrawerMenuItem(title = "EDIT_PROFILE.exe") {
+                                coroutineScope.launch { drawerState.close() }
+                                showEditProfileDialog = true
+                            }
+                            DrawerMenuItem(title = "THEME.ini") {
+                                coroutineScope.launch { drawerState.close() }
+                                showThemeDialog = true
+                            }
+                            DrawerMenuItem(title = "ABOUT.txt") {
+                                coroutineScope.launch { drawerState.close() }
+                                showAboutDialog = true
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
@@ -149,7 +289,7 @@ fun HomeScreen(
                 RoleButton(
                     title = "HOST (CAMERA)",
                     description = "Aktifin AI & Pancarin P2P",
-                    icon = Icons.Default.Camera,
+                    pixelMatrix = PIXEL_CAMERA,
                     color = Color.Magenta,
                     onClick = onNavigateToCamera
                 )
@@ -159,7 +299,7 @@ fun HomeScreen(
                 RoleButton(
                     title = "REMOTE (CTRL)",
                     description = "Konek ke Host & Jepret",
-                    icon = Icons.Default.PhoneAndroid,
+                    pixelMatrix = PIXEL_REMOTE,
                     color = Color.Cyan,
                     onClick = onNavigateToRemote
                 )
@@ -169,16 +309,61 @@ fun HomeScreen(
 
     // --- IMPLEMENTASI KUMPULAN DIALOG Y2K ---
 
-    if (showProfileDialog) {
-        Y2KDialogWrapper(title = "USER_DATA", borderColor = Color.Cyan, onDismiss = { showProfileDialog = false }) {
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text("> ID: FIKAL ALIF AL AMIN", color = Color.White, style = Y2KTypography.bodyMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("> RANK: ADMIN / ROOT", color = Color.Magenta, style = Y2KTypography.bodyMedium)
-                Spacer(modifier = Modifier.height(8.dp))
-                Text("> DIV: INFORMATICS ENG.", color = Color.Green, style = Y2KTypography.bodyMedium)
+    if (showEditProfileDialog) {
+        Y2KDialogWrapper(title = "EDIT_PROFILE", borderColor = Color.Magenta, onDismiss = { showEditProfileDialog = false }) {
+            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(100.dp)
+                        .background(Color.Black)
+                        .border(2.dp, Color.Magenta, RectangleShape)
+                        .clickable { imagePickerLauncher.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    NativeProfileImage(profileImageUri)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .background(Color.Magenta)
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                    ) {
+                        Text("EDIT", color = Color.White, style = Y2KTypography.bodySmall)
+                    }
+                }
                 Spacer(modifier = Modifier.height(24.dp))
-                Y2KDialogButton("ACKNOWLEDGE", Color.Cyan) { showProfileDialog = false }
+
+                OutlinedTextField(
+                    value = editUsername,
+                    onValueChange = { editUsername = it },
+                    label = { Text("> USERNAME", color = Color.Magenta, style = Y2KTypography.bodySmall) },
+                    textStyle = Y2KTypography.bodyMedium.copy(color = Color.White),
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Cyan,
+                        unfocusedBorderColor = Color.DarkGray
+                    ),
+                    shape = RectangleShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                OutlinedTextField(
+                    value = editPassword,
+                    onValueChange = { editPassword = it },
+                    label = { Text("> PASSWORD", color = Color.Magenta, style = Y2KTypography.bodySmall) },
+                    textStyle = Y2KTypography.bodyMedium.copy(color = Color.White),
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color.Cyan,
+                        unfocusedBorderColor = Color.DarkGray
+                    ),
+                    shape = RectangleShape,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Y2KDialogButton("SAVE_CHANGES", Color.Green) { showEditProfileDialog = false }
             }
         }
     }
@@ -222,7 +407,7 @@ fun HomeScreen(
                     Box(modifier = Modifier.weight(1f)) {
                         Y2KDialogButton("YES / KILL", Color.Red) {
                             showLogoutDialog = false
-                            // TODO: Eksekusi clear session / navigasi ke Onboarding
+                            onLogout()
                         }
                     }
                 }
@@ -237,7 +422,7 @@ fun HomeScreen(
 fun RoleButton(
     title: String,
     description: String,
-    icon: ImageVector,
+    pixelMatrix: List<String>,
     color: Color,
     onClick: () -> Unit
 ) {
@@ -252,12 +437,24 @@ fun RoleButton(
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(48.dp)
-            )
+            Canvas(modifier = Modifier.size(56.dp).aspectRatio(1f)) {
+                val rows = pixelMatrix.size
+                val cols = pixelMatrix.maxOf { it.length }
+                val pixelWidth = size.width / cols
+                val pixelHeight = size.height / rows
+
+                for (r in 0 until rows) {
+                    for (c in 0 until pixelMatrix[r].length) {
+                        if (pixelMatrix[r][c] == 'X') {
+                            drawRect(
+                                color = color,
+                                topLeft = Offset(c * pixelWidth, r * pixelHeight),
+                                size = Size(pixelWidth, pixelHeight)
+                            )
+                        }
+                    }
+                }
+            }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(text = title, style = Y2KTypography.bodyLarge, color = color)
@@ -289,7 +486,6 @@ fun DrawerMenuItem(title: String, onClick: () -> Unit) {
     }
 }
 
-// PEMBUNGKUS DIALOG RETRO TERMINAL
 @Composable
 fun Y2KDialogWrapper(
     title: String,
@@ -303,12 +499,11 @@ fun Y2KDialogWrapper(
                 .fillMaxWidth()
                 .background(Color.Black)
                 .border(3.dp, borderColor, RectangleShape)
-                .padding(2.dp) // Inner gap
+                .padding(2.dp)
                 .border(1.dp, Color.DarkGray, RectangleShape)
                 .padding(20.dp)
         ) {
             Column {
-                // Header Window
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -326,14 +521,12 @@ fun Y2KDialogWrapper(
                 HorizontalDivider(color = Color.DarkGray, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Isi Konten
                 content()
             }
         }
     }
 }
 
-// TOMBOL DIALOG RETRO
 @Composable
 fun Y2KDialogButton(text: String, color: Color, onClick: () -> Unit) {
     Box(
@@ -358,5 +551,50 @@ fun ThemeOptionItem(name: String, isActive: Boolean) {
         Box(modifier = Modifier.size(16.dp).background(if(isActive) Color.Magenta else Color.Black).border(1.dp, Color.White, RectangleShape))
         Spacer(modifier = Modifier.width(16.dp))
         Text(name, color = if(isActive) Color.White else Color.Gray, style = Y2KTypography.bodyMedium)
+    }
+}
+
+@Composable
+fun NativeProfileImage(uri: Uri?, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    var bitmapState by remember(uri) { mutableStateOf<ImageBitmap?>(null) }
+
+    LaunchedEffect(uri) {
+        if (uri != null) {
+            withContext(Dispatchers.IO) {
+                try {
+                    val bmp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+                        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                            decoder.allocator = android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                            decoder.isMutableRequired = true
+                        }
+                    } else {
+                        MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+                    }
+                    bitmapState = bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, false).asImageBitmap()
+                } catch (e: Exception) {
+                    Log.e("PROFILE_IMG", "Gagal load foto profil", e)
+                }
+            }
+        } else {
+            bitmapState = null
+        }
+    }
+
+    if (bitmapState != null) {
+        Image(
+            bitmap = bitmapState!!,
+            contentDescription = "Profile Photo",
+            modifier = modifier.fillMaxSize(),
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Icon(
+            imageVector = Icons.Default.Person,
+            contentDescription = "Empty Profile",
+            tint = Color.Magenta,
+            modifier = modifier.fillMaxSize().padding(16.dp)
+        )
     }
 }
