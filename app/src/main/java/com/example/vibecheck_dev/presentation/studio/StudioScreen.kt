@@ -40,6 +40,15 @@ fun StudioScreen(viewModel: StudioViewModel) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
 
+    // --- SEDOT WARNA DINAMIS DARI TEMA ---
+    val bgColor = MaterialTheme.colorScheme.background
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val onBgColor = MaterialTheme.colorScheme.onBackground
+    val errorColor = MaterialTheme.colorScheme.error
+    val borderColor = onBgColor.copy(alpha = 0.3f)
+
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
@@ -65,41 +74,62 @@ fun StudioScreen(viewModel: StudioViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("VIBE_STUDIO.exe", style = Y2KTypography.titleMedium, color = Color.Magenta) },
+                title = {
+                    Text(
+                        "VIBE_STUDIO.exe",
+                        style = Y2KTypography.titleMedium,
+                        color = secondaryColor
+                    )
+                },
                 actions = {
                     IconButton(
                         onClick = {
                             if (uiState.loadedAndroidBitmap != null && !uiState.isSaving) {
-                                Toast.makeText(context, "Rendering image...", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Rendering image...", Toast.LENGTH_SHORT)
+                                    .show()
                                 viewModel.onEvent(StudioEvent.SaveImage(context) { success ->
                                     if (success) {
-                                        Toast.makeText(context, "IMAGE SAVED TO VAULT!", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            context,
+                                            "IMAGE SAVED TO VAULT!",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     } else {
-                                        Toast.makeText(context, "ERR: Render failed", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(
+                                            context,
+                                            "ERR: Render failed",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
                                     }
                                 })
                             } else if (uiState.loadedAndroidBitmap == null) {
-                                Toast.makeText(context, "Load gambar dulu bro!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Load gambar dulu bro!", Toast.LENGTH_SHORT)
+                                    .show()
                             }
                         }
                     ) {
                         Icon(
                             imageVector = Icons.Default.Save,
                             contentDescription = "Export",
-                            tint = if (uiState.isSaving) Color.Gray else Color.Green,
+                            tint = if (uiState.isSaving) borderColor else secondaryColor, // Dinamis
                             modifier = if (uiState.isSaving) Modifier.y2kBlinkEffect(500) else Modifier
                         )
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Black),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = bgColor),
                 modifier = Modifier.drawBehind {
                     val strokeWidth = 2.dp.toPx()
                     val y = size.height - strokeWidth / 2
-                    drawLine(color = Color.Magenta, start = Offset(0f, y), end = Offset(size.width, y), strokeWidth = strokeWidth)
+                    drawLine(
+                        color = secondaryColor,
+                        start = Offset(0f, y),
+                        end = Offset(size.width, y),
+                        strokeWidth = strokeWidth
+                    )
                 }
             )
         },
-        containerColor = Color.Black
+        containerColor = bgColor
     ) { innerPadding ->
         Column(
             modifier = Modifier
@@ -112,8 +142,8 @@ fun StudioScreen(viewModel: StudioViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
-                    .background(Color(0xFF0A0A0A))
-                    .border(2.dp, Color.White, RectangleShape)
+                    .background(surfaceColor) // Dinamis
+                    .border(2.dp, onBgColor, RectangleShape) // Dinamis
                     .clickable { imagePickerLauncher.launch("image/*") },
                 contentAlignment = Alignment.Center
             ) {
@@ -127,9 +157,20 @@ fun StudioScreen(viewModel: StudioViewModel) {
                     )
                 } else {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Default.Image, contentDescription = "Load", tint = Color.Cyan, modifier = Modifier.size(48.dp).y2kBlinkEffect(800))
+                        Icon(
+                            Icons.Default.Image,
+                            contentDescription = "Load",
+                            tint = primaryColor,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .y2kBlinkEffect(800)
+                        )
                         Spacer(modifier = Modifier.height(16.dp))
-                        Text("TAP TO LOAD IMAGE", color = Color.Cyan, style = Y2KTypography.bodyMedium)
+                        Text(
+                            "TAP TO LOAD IMAGE",
+                            color = primaryColor,
+                            style = Y2KTypography.bodyMedium
+                        )
                     }
                 }
             }
@@ -137,10 +178,20 @@ fun StudioScreen(viewModel: StudioViewModel) {
             Spacer(modifier = Modifier.height(16.dp))
 
             // --- TAB NAVIGASI TERMINAL ---
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                StudioTabButton("PRESETS", uiState.selectedTab == 0) { viewModel.onEvent(StudioEvent.ChangeTab(0)) }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                StudioTabButton(
+                    "PRESETS",
+                    uiState.selectedTab == 0
+                ) { viewModel.onEvent(StudioEvent.ChangeTab(0)) }
                 Spacer(modifier = Modifier.width(8.dp))
-                StudioTabButton("MANUAL TWEAKS", uiState.selectedTab == 1) { viewModel.onEvent(StudioEvent.ChangeTab(1)) }
+                StudioTabButton("MANUAL TWEAKS", uiState.selectedTab == 1) {
+                    viewModel.onEvent(
+                        StudioEvent.ChangeTab(1)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -150,15 +201,17 @@ fun StudioScreen(viewModel: StudioViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(220.dp)
-                    .border(2.dp, Color.DarkGray, RectangleShape)
-                    .background(Color(0xFF111111))
+                    .border(2.dp, borderColor, RectangleShape) // Dinamis
+                    .background(surfaceColor) // Dinamis
                     .padding(16.dp)
             ) {
                 if (uiState.selectedTab == 0) {
                     // TAB 0: DAFTAR PRESET
                     val allPresets = defaultPresets + uiState.savedCustomPresets
                     Row(
-                        modifier = Modifier.fillMaxSize().horizontalScroll(rememberScrollState()),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -170,24 +223,51 @@ fun StudioScreen(viewModel: StudioViewModel) {
                     }
                 } else {
                     // TAB 1: SLIDER MANUAL
-                    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-                        Y2KSlider("BRIGHTNESS", uiState.currentBrightness, 0.5f, 1.5f) { viewModel.onEvent(StudioEvent.UpdateBrightness(it)) }
-                        Y2KSlider("CONTRAST", uiState.currentContrast, 0.5f, 1.5f) { viewModel.onEvent(StudioEvent.UpdateContrast(it)) }
-                        Y2KSlider("SATURATION", uiState.currentSaturation, 0f, 2f) { viewModel.onEvent(StudioEvent.UpdateSaturation(it)) }
-                        Y2KSlider("CCD WARMTH", uiState.currentWarmth, -1f, 1f) { viewModel.onEvent(StudioEvent.UpdateWarmth(it)) }
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        Y2KSlider(
+                            "BRIGHTNESS",
+                            uiState.currentBrightness,
+                            0.5f,
+                            1.5f
+                        ) { viewModel.onEvent(StudioEvent.UpdateBrightness(it)) }
+                        Y2KSlider(
+                            "CONTRAST",
+                            uiState.currentContrast,
+                            0.5f,
+                            1.5f
+                        ) { viewModel.onEvent(StudioEvent.UpdateContrast(it)) }
+                        Y2KSlider(
+                            "SATURATION",
+                            uiState.currentSaturation,
+                            0f,
+                            2f
+                        ) { viewModel.onEvent(StudioEvent.UpdateSaturation(it)) }
+                        Y2KSlider("CCD WARMTH", uiState.currentWarmth, -1f, 1f) {
+                            viewModel.onEvent(
+                                StudioEvent.UpdateWarmth(it)
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color.DarkGray)
-                                .border(2.dp, Color.Cyan, RectangleShape)
+                                .background(borderColor.copy(alpha = 0.2f)) // Dinamis
+                                .border(2.dp, primaryColor, RectangleShape)
                                 .clickable { viewModel.onEvent(StudioEvent.ToggleSaveDialog(true)) }
                                 .padding(12.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text("SAVE AS CUSTOM PRESET >>", color = Color.Cyan, style = Y2KTypography.bodyMedium)
+                            Text(
+                                "SAVE AS CUSTOM PRESET >>",
+                                color = primaryColor,
+                                style = Y2KTypography.bodyMedium
+                            )
                         }
                     }
                 }
@@ -201,44 +281,73 @@ fun StudioScreen(viewModel: StudioViewModel) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black)
-                    .border(3.dp, Color.Cyan, RectangleShape)
+                    .background(bgColor) // Dinamis
+                    .border(3.dp, primaryColor, RectangleShape)
                     .padding(20.dp)
             ) {
                 Column {
-                    Text("[ SAVE_PRESET.cfg ]", color = Color.Cyan, style = Y2KTypography.titleMedium)
+                    Text(
+                        "[ SAVE_PRESET.cfg ]",
+                        color = primaryColor,
+                        style = Y2KTypography.titleMedium
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
                     OutlinedTextField(
                         value = uiState.newPresetName,
                         onValueChange = { viewModel.onEvent(StudioEvent.UpdateNewPresetName(it)) },
-                        textStyle = Y2KTypography.bodyMedium.copy(color = Color.White),
-                        placeholder = { Text("PRESET_NAME", color = Color.Gray, style = Y2KTypography.bodySmall) },
+                        textStyle = Y2KTypography.bodyMedium.copy(color = onBgColor), // Dinamis
+                        placeholder = {
+                            Text(
+                                "PRESET_NAME",
+                                color = borderColor,
+                                style = Y2KTypography.bodySmall
+                            )
+                        }, // Dinamis
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color.Magenta,
-                            unfocusedBorderColor = Color.DarkGray
+                            focusedBorderColor = secondaryColor,
+                            unfocusedBorderColor = borderColor
                         ),
                         shape = RectangleShape,
                         modifier = Modifier.fillMaxWidth()
                     )
                     Spacer(modifier = Modifier.height(24.dp))
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
                         Text(
                             text = "CANCEL",
-                            color = Color.Red,
+                            color = errorColor, // Dinamis
                             style = Y2KTypography.bodyMedium,
-                            modifier = Modifier.clickable { viewModel.onEvent(StudioEvent.ToggleSaveDialog(false)) }.padding(8.dp)
+                            modifier = Modifier
+                                .clickable {
+                                    viewModel.onEvent(
+                                        StudioEvent.ToggleSaveDialog(
+                                            false
+                                        )
+                                    )
+                                }
+                                .padding(8.dp)
                         )
                         Spacer(modifier = Modifier.width(16.dp))
                         Text(
                             text = "SAVE",
-                            color = Color.Green,
+                            color = secondaryColor, // Dinamis
                             style = Y2KTypography.bodyMedium,
-                            modifier = Modifier.clickable {
-                                viewModel.onEvent(StudioEvent.SaveCustomPreset)
-                            }.padding(8.dp).drawBehind {
-                                drawLine(Color.Green, Offset(0f, size.height), Offset(size.width, size.height), 2f)
-                            }
+                            modifier = Modifier
+                                .clickable {
+                                    viewModel.onEvent(StudioEvent.SaveCustomPreset)
+                                }
+                                .padding(8.dp)
+                                .drawBehind {
+                                    drawLine(
+                                        secondaryColor,
+                                        Offset(0f, size.height),
+                                        Offset(size.width, size.height),
+                                        2f
+                                    )
+                                }
                         )
                     }
                 }
@@ -251,9 +360,14 @@ fun StudioScreen(viewModel: StudioViewModel) {
 
 @Composable
 fun RowScope.StudioTabButton(title: String, isSelected: Boolean, onClick: () -> Unit) {
-    val bgColor = if (isSelected) Color.Magenta else Color.Black
-    val textColor = if (isSelected) Color.White else Color.Gray
-    val borderColor = if (isSelected) Color.Magenta else Color.DarkGray
+    val themePrimary = MaterialTheme.colorScheme.primary
+    val themeBg = MaterialTheme.colorScheme.background
+    val themeOnBg = MaterialTheme.colorScheme.onBackground
+    val themeBorder = themeOnBg.copy(alpha = 0.3f)
+
+    val bgColor = if (isSelected) themePrimary else themeBg
+    val textColor = if (isSelected) themeBg else themeOnBg.copy(alpha = 0.6f)
+    val borderColor = if (isSelected) themePrimary else themeBorder
 
     Box(
         modifier = Modifier
@@ -269,22 +383,45 @@ fun RowScope.StudioTabButton(title: String, isSelected: Boolean, onClick: () -> 
 }
 
 @Composable
-fun PresetCard(preset: Y2KPreset, previewBitmap: androidx.compose.ui.graphics.ImageBitmap?, onClick: () -> Unit) {
+fun PresetCard(
+    preset: Y2KPreset,
+    previewBitmap: androidx.compose.ui.graphics.ImageBitmap?,
+    onClick: () -> Unit
+) {
+    val themeBg = MaterialTheme.colorScheme.background
+    val themeSecondary = MaterialTheme.colorScheme.secondary
+    val themeOnBg = MaterialTheme.colorScheme.onBackground
+    val themeBorder = themeOnBg.copy(alpha = 0.3f)
+
     Box(
         modifier = Modifier
             .width(100.dp)
             .height(120.dp)
-            .background(Color.Black)
-            .border(2.dp, Color.White, RectangleShape)
+            .background(themeBg)
+            .border(2.dp, themeOnBg, RectangleShape)
             .clickable { onClick() }
             .padding(8.dp),
         contentAlignment = Alignment.Center
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-            Box(modifier = Modifier.size(40.dp).background(Color.DarkGray).border(1.dp, Color.Cyan, RectangleShape), contentAlignment = Alignment.Center) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .background(themeBorder)
+                    .border(1.dp, themeSecondary, RectangleShape),
+                contentAlignment = Alignment.Center
+            ) {
                 if (previewBitmap != null) {
                     val previewMatrix = remember(preset) {
-                        val matrix = ColorMatrixUtil.createAndroidColorMatrix(preset.brightness, preset.contrast, preset.saturation, preset.warmth)
+                        val matrix = ColorMatrixUtil.createAndroidColorMatrix(
+                            preset.brightness,
+                            preset.contrast,
+                            preset.saturation,
+                            preset.warmth
+                        )
                         androidx.compose.ui.graphics.ColorMatrix(matrix.array)
                     }
                     Image(
@@ -297,26 +434,43 @@ fun PresetCard(preset: Y2KPreset, previewBitmap: androidx.compose.ui.graphics.Im
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Text(preset.name, color = Color.White, style = Y2KTypography.bodySmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(
+                text = preset.name,
+                color = themeOnBg,
+                style = Y2KTypography.bodySmall,
+                maxLines = 2,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
         }
     }
 }
 
 @Composable
 fun Y2KSlider(label: String, value: Float, min: Float, max: Float, onValueChange: (Float) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+    val themePrimary = MaterialTheme.colorScheme.primary
+    val themeSecondary = MaterialTheme.colorScheme.secondary
+    val themeOnBg = MaterialTheme.colorScheme.onBackground
+    val themeTrackInactive = themeOnBg.copy(alpha = 0.3f)
+
+    Column(modifier = Modifier
+        .fillMaxWidth()
+        .padding(bottom = 8.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("> $label", color = Color.Cyan, style = Y2KTypography.bodySmall)
-            Text(String.format(java.util.Locale.US, "%.2f", value), color = Color.Magenta, style = Y2KTypography.bodySmall)
+            Text("> $label", color = themeSecondary, style = Y2KTypography.bodySmall)
+            Text(
+                String.format(java.util.Locale.US, "%.2f", value),
+                color = themePrimary,
+                style = Y2KTypography.bodySmall
+            )
         }
         Slider(
             value = value,
             onValueChange = onValueChange,
             valueRange = min..max,
             colors = SliderDefaults.colors(
-                thumbColor = Color.Magenta,
-                activeTrackColor = Color.Cyan,
-                inactiveTrackColor = Color.DarkGray
+                thumbColor = themePrimary,
+                activeTrackColor = themeSecondary,
+                inactiveTrackColor = themeTrackInactive
             ),
             modifier = Modifier.height(30.dp)
         )

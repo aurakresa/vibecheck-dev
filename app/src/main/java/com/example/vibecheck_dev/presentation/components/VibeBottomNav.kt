@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -51,6 +52,11 @@ fun VibeBottomNav(navController: NavController) {
         Screen.Purikura
     )
 
+    val bgColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val onBgColor = MaterialTheme.colorScheme.onBackground
+
     val navBackStackEntry = navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry.value?.destination?.route
 
@@ -59,8 +65,8 @@ fun VibeBottomNav(navController: NavController) {
         modifier = Modifier
             .fillMaxWidth()
             .height(70.dp)
-            .background(Color.Black)
-            .border(2.dp, Color.DarkGray, RectangleShape),
+            .background(bgColor)
+            .border(2.dp, secondaryColor, RectangleShape),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -68,16 +74,16 @@ fun VibeBottomNav(navController: NavController) {
             val isSelected = currentRoute == screen.route
 
             // Logika Warna Y2K: Kalau dipilih jadi Magenta, kalau nggak Cyan/Abu
-            val iconColor = if (isSelected) Color.Magenta else Color.Cyan
-            val textColor = if (isSelected) Color.White else Color.Gray
-            val bgColor = if (isSelected) Color(0xFF1A001A) else Color.Transparent
-            val borderModifier = if (isSelected) Modifier.border(1.dp, Color.Magenta, RectangleShape) else Modifier
+            val iconColor = if (isSelected) primaryColor else onBgColor.copy(alpha = 0.5f)
+            val textColor = if (isSelected) primaryColor else onBgColor.copy(alpha = 0.5f)
+            val itemBgColor = if (isSelected) onBgColor.copy(alpha = 0.1f) else Color.Transparent
+            val borderModifier = if (isSelected) Modifier.border(1.dp, primaryColor, RectangleShape) else Modifier
 
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(bgColor)
+                    .background(itemBgColor)
                     .then(borderModifier)
                     .clickable {
                         if (currentRoute != screen.route) {

@@ -313,33 +313,61 @@ fun P2pScannerOverlay(
     onRefresh: () -> Unit,
     onConnect: (String) -> Unit
 ) {
+    // --- SEDOT WARNA DINAMIS DARI TEMA ---
+    val bgColor = MaterialTheme.colorScheme.background
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val onBgColor = MaterialTheme.colorScheme.onBackground
+    val errorColor = MaterialTheme.colorScheme.error
+    val borderColor = onBgColor.copy(alpha = 0.3f)
+
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Box(modifier = Modifier.border(2.dp, Color.Cyan, RectangleShape).background(Color.DarkGray.copy(alpha = 0.3f)).padding(24.dp)) {
+        // Kotak Overlay utama
+        Box(
+            modifier = Modifier
+                .border(2.dp, primaryColor, RectangleShape)
+                .background(surfaceColor.copy(alpha = 0.95f)) // Pakai warna surface dengan sedikit transparansi
+                .padding(24.dp)
+        ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("RADAR_SCAN.exe", style = Y2KTypography.titleLarge, color = Color.Cyan, modifier = Modifier.y2kGlitchEffect())
+                Text("RADAR_SCAN.exe", style = Y2KTypography.titleLarge, color = primaryColor, modifier = Modifier.y2kGlitchEffect())
                 Spacer(modifier = Modifier.height(8.dp))
 
                 if (peers.isEmpty()) {
-                    Text("Tekan tombol REF untuk mencari host...", style = Y2KTypography.bodySmall, color = Color.Yellow)
+                    Text("Tekan tombol REF untuk mencari host...", style = Y2KTypography.bodySmall, color = secondaryColor)
                 } else {
-                    Text("Ditemukan ${peers.size} Host!", style = Y2KTypography.bodySmall, color = Color.Green)
+                    Text("Ditemukan ${peers.size} Host!", style = Y2KTypography.bodySmall, color = primaryColor)
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
 
                 LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(peers) { device ->
-                        Row(modifier = Modifier.fillMaxWidth().border(1.dp, Color.White, RectangleShape).background(Color.Black).padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, borderColor, RectangleShape)
+                                .background(bgColor)
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Column {
-                                Text("> ${device.deviceName}", style = Y2KTypography.bodyMedium, color = Color.Green)
-                                Text(device.deviceAddress, style = Y2KTypography.bodySmall, color = Color.Gray)
+                                Text("> ${device.deviceName}", style = Y2KTypography.bodyMedium, color = primaryColor)
+                                Text(device.deviceAddress, style = Y2KTypography.bodySmall, color = onBgColor.copy(alpha = 0.6f))
                             }
-                            Button(onClick = { onConnect(device.deviceAddress) }, colors = ButtonDefaults.buttonColors(containerColor = Color.Magenta), shape = RectangleShape, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)) {
-                                Text("LINK", color = Color.White, style = Y2KTypography.bodySmall)
+                            Button(
+                                onClick = { onConnect(device.deviceAddress) },
+                                colors = ButtonDefaults.buttonColors(containerColor = secondaryColor),
+                                shape = RectangleShape,
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                            ) {
+                                Text("LINK", color = bgColor, style = Y2KTypography.bodySmall)
                             }
                         }
                     }
@@ -350,9 +378,9 @@ fun P2pScannerOverlay(
                 Row(horizontalArrangement = Arrangement.SpaceBetween, modifier = Modifier.fillMaxWidth()) {
                     OutlinedButton(
                         onClick = onCancel,
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = errorColor),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f).border(2.dp, Color.Red, RectangleShape)
+                        modifier = Modifier.weight(1f).border(2.dp, errorColor, RectangleShape)
                     ) {
                         Text("ABORT", style = Y2KTypography.bodyMedium)
                     }
@@ -362,15 +390,15 @@ fun P2pScannerOverlay(
                         onClick = onRefresh,
                         enabled = !isDiscovering,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isDiscovering) Color.DarkGray else Color.Cyan,
-                            disabledContainerColor = Color.DarkGray
+                            containerColor = if (isDiscovering) surfaceColor else primaryColor,
+                            disabledContainerColor = surfaceColor
                         ),
                         shape = RectangleShape,
-                        modifier = Modifier.weight(1f).border(2.dp, if (isDiscovering) Color.Gray else Color.White, RectangleShape)
+                        modifier = Modifier.weight(1f).border(2.dp, if (isDiscovering) borderColor else borderColor, RectangleShape)
                     ) {
                         Text(
                             text = if (isDiscovering) "SCANNING..." else "REF",
-                            color = if (isDiscovering) Color.LightGray else Color.Black,
+                            color = if (isDiscovering) onBgColor.copy(alpha = 0.5f) else bgColor,
                             style = Y2KTypography.bodyMedium,
                             modifier = if (isDiscovering) Modifier.y2kBlinkEffect(300) else Modifier
                         )

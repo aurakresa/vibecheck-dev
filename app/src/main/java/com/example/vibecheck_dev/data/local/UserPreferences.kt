@@ -20,6 +20,8 @@ class UserPreferences(private val context: Context) {
 
         val IS_LOGGED_IN = booleanPreferencesKey("is_logged_in")
         val AUTH_TOKEN = stringPreferencesKey("auth_token")
+
+        val THEME_KEY = stringPreferencesKey("theme_key")
     }
 
     // Fungsi untuk BACA data secara real-time (Flow)
@@ -33,6 +35,8 @@ class UserPreferences(private val context: Context) {
 
     val isLoggedInFlow: Flow<Boolean> = context.dataStore.data.map { it[IS_LOGGED_IN] ?: false }
     val authTokenFlow: Flow<String> = context.dataStore.data.map { it[AUTH_TOKEN] ?: "" }
+
+    val themeFlow: Flow<String> = context.dataStore.data.map { it[THEME_KEY] ?: "Y2K BRIGHT NEON" }
 
     // Fungsi untuk SIMPAN data
     suspend fun setFirstTimeCompleted() {
@@ -52,5 +56,9 @@ class UserPreferences(private val context: Context) {
             preferences[AUTH_TOKEN] = token
             preferences[IS_LOGGED_IN] = isLogged
         }
+    }
+
+    suspend fun saveTheme(themeName: String) {
+        context.dataStore.edit { it[THEME_KEY] = themeName }
     }
 }

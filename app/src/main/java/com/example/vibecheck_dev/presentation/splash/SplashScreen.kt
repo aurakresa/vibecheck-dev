@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +38,13 @@ fun SplashScreen(navController: NavController) {
     var progress by remember { mutableIntStateOf(0) }
     var terminalLogs by remember { mutableStateOf("") }
     var showLogo by remember { mutableStateOf(false) }
+
+    // SEDOT WARNA DARI TEMA
+    val bgColor = MaterialTheme.colorScheme.background
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val secondaryColor = MaterialTheme.colorScheme.secondary
+    val onBgColor = MaterialTheme.colorScheme.onBackground
+    val borderColor = onBgColor.copy(alpha = 0.3f)
 
     // Efek Animasi Booting Terminal
     LaunchedEffect(Unit) {
@@ -76,8 +84,8 @@ fun SplashScreen(navController: NavController) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black)
-            .border(4.dp, Color.DarkGray, RectangleShape)
+            .background(bgColor)
+            .border(4.dp, borderColor, RectangleShape)
             .padding(24.dp),
         contentAlignment = Alignment.Center
     ) {
@@ -97,7 +105,7 @@ fun SplashScreen(navController: NavController) {
                         for (c in 0 until PIXEL_DISK[r].length) {
                             if (PIXEL_DISK[r][c] == 'X') {
                                 drawRect(
-                                    color = Color.Magenta,
+                                    color = primaryColor,
                                     topLeft = Offset(c * pixelWidth, r * pixelHeight),
                                     size = Size(pixelWidth, pixelHeight)
                                 )
@@ -112,7 +120,7 @@ fun SplashScreen(navController: NavController) {
             // JUDUL
             Text(
                 text = "VIBECHECK_OS",
-                color = Color.Cyan,
+                color = primaryColor,
                 style = Y2KTypography.titleLarge,
                 modifier = Modifier.y2kBlinkEffect(400)
             )
@@ -123,7 +131,7 @@ fun SplashScreen(navController: NavController) {
             Box(modifier = Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.BottomStart) {
                 Text(
                     text = terminalLogs,
-                    color = Color.Green,
+                    color = secondaryColor,
                     style = Y2KTypography.bodySmall.copy(lineHeight = 18.sp)
                 )
             }
@@ -138,7 +146,7 @@ fun SplashScreen(navController: NavController) {
 
             Text(
                 text = barString,
-                color = if (progress == 100) Color.Green else Color.Magenta,
+                color = if (progress == 100) secondaryColor else primaryColor,
                 style = Y2KTypography.bodyMedium
             )
         }

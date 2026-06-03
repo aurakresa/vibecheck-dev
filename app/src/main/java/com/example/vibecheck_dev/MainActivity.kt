@@ -45,11 +45,17 @@ class MainActivity : ComponentActivity() {
         Log.d("FIKAL_DEBUG", "Aplikasi VibeCheck Mulai Berjalan!")
 
         setContent {
-            VibeCheckdevTheme {
+            val context = LocalContext.current
+            val userPreferences = remember { UserPreferences(context) }
+            // TEMA DIBACA DARI MEMORI LOKAL
+            val activeTheme by userPreferences.themeFlow.collectAsState(initial = "Y2K BRIGHT NEON")
+
+            // TEMA DISUNTIKAN KE SELURUH APLIKASI
+            VibeCheckdevTheme(themeName = activeTheme) {
                 Surface(
                     modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background
                 ) {
-                    AppNavigation()
+                    AppNavigation(userPreferences) // Lempar data memori ke AppNavigation
                 }
             }
         }
@@ -57,7 +63,7 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun AppNavigation() {
+fun AppNavigation(userPreferences: UserPreferences) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -69,6 +75,7 @@ fun AppNavigation() {
     val isFirstTime by userPreferences.isFirstTimeFlow.collectAsState(initial = null)
     val playerName by userPreferences.playerNameFlow.collectAsState(initial = null)
     val isLoggedIn by userPreferences.isLoggedInFlow.collectAsState(initial = null)
+    val activeTheme by userPreferences.themeFlow.collectAsState(initial = "Y2K BRIGHT NEON")
 
     if (isFirstTime == null || isLoggedIn == null) {
         return // Tunggu DataStore kelar baca
@@ -178,7 +185,12 @@ fun AppNavigation() {
                         }
                     },
                     isGuestMode = isGuestMode,
-                    guestName = playerName ?: "GUEST_USER"
+                    guestName = playerName ?: "GUEST_USER",
+                    activeThemeName = activeTheme,
+                    onThemeChanged = { newTheme ->
+                        coroutineScope.launch { userPreferences.saveTheme(newTheme) } // FUNGSI SAVE TEMA
+                    }
+
                 )
             }
 
