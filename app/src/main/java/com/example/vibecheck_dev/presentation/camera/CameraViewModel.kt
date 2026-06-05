@@ -6,7 +6,9 @@ import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.vibecheck_dev.domain.model.DetectedScene
 import com.example.vibecheck_dev.domain.repository.P2pRepository
+import com.example.vibecheck_dev.domain.util.IdlePoseTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,10 +16,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import com.example.vibecheck_dev.presentation.camera.Y2KPoseType
 
 class CameraViewModel(
     private val p2pRepository: P2pRepository
 ) : ViewModel() {
+
+    private val idleTracker = IdlePoseTracker()
 
     val connectionInfo = p2pRepository.connectionInfo
 
@@ -33,8 +38,6 @@ class CameraViewModel(
         viewModelScope.launch {
             p2pRepository.incomingMessages.collect { message ->
                 when {
-                    message == "CMD_JEPRET" -> _takePhotoTrigger.tryEmit(Unit)
-
                     message.startsWith("CMD_FLASH_") -> {
                         val mode = message.removePrefix("CMD_FLASH_")
                         val flashInt = when(mode) {
@@ -78,6 +81,8 @@ class CameraViewModel(
                         val isOn = message.removePrefix("CMD_PHOTOBOOTH_") == "ON"
                         _uiState.update { it.copy(isPhotoboothMode = isOn) }
                     }
+
+                    // (Bug CMD_JEPRET dobel udah dihapus, tinggal ini aja)
                     message == "CMD_JEPRET" -> {
                         if (_uiState.value.isPhotoboothMode) {
                             startPhotoboothSequence() // Panggil loop 4x
@@ -85,7 +90,7 @@ class CameraViewModel(
                             _takePhotoTrigger.tryEmit(Unit)
                         }
                     }
-                    // --- TAMBAHIN KODE INI DI DALAM WHEN INCOMING MESSAGES ---
+
                     message == "CMD_TOGGLE_ASPECT" -> {
                         val newRatio = if (_uiState.value.aspectRatio == androidx.camera.core.AspectRatio.RATIO_4_3) {
                             androidx.camera.core.AspectRatio.RATIO_16_9
@@ -93,7 +98,11 @@ class CameraViewModel(
                         _uiState.update { it.copy(aspectRatio = newRatio) }
                     }
                     message == "CMD_TOGGLE_VIDEO" -> {
-                        _uiState.update { it.copy(isVideoMode = !it.isVideoMode) }
+                        // Kasih jeda 300ms biar GPU Mali sempat merilis gembok ImageProxy
+                        viewModelScope.launch {
+                            kotlinx.coroutines.delay(300)
+                            _uiState.update { it.copy(isVideoMode = !it.isVideoMode) }
+                        }
                     }
                     message.startsWith("CMD_ISO_") -> {
                         val iso = message.removePrefix("CMD_ISO_").toIntOrNull() ?: 100
@@ -102,6 +111,11 @@ class CameraViewModel(
                     message.startsWith("CMD_SHT_") -> {
                         val sht = message.removePrefix("CMD_SHT_").toLongOrNull() ?: 0L
                         _uiState.update { it.copy(shutterSpeed = sht) }
+                    }
+
+                    // --- INI DIA SAKLAR SAKTINYA ---
+                    message == "CMD_TOGGLE_AI" -> {
+                        onEvent(CameraEvent.TogglePoseSuggestion)
                     }
                 }
             }
@@ -123,8 +137,12 @@ class CameraViewModel(
             is CameraEvent.SendVideoFrame -> {
                 viewModelScope.launch(Dispatchers.Default) {
                     try {
-                        val base64String = Base64.encodeToString(event.byteArray, Base64.NO_WRAP)
-                        p2pRepository.sendMessage("CMD_FRAME_${event.rotationDegrees}_${event.isFrontCamera}_$base64String")
+                        val base64String = android.util.Base64.encodeToString(event.byteArray, android.util.Base64.NO_WRAP)
+
+                        // KITA GANTI PEMISAHNYA JADI "|" BIAR GAK BENTROK SAMA NAMA POSE
+                        val payload = "CMD_FRAME_${event.rotationDegrees}|${event.isFrontCamera}|${event.aiPhase}|${event.poseType}|${event.isMatched}|${event.anchorX}|${event.anchorY}|${event.bodyScale}|$base64String"
+
+                        p2pRepository.sendMessage(payload)
                     } catch (e: Exception) {
                         Log.e("CAMERA_VM", "Gagal encode frame: ${e.message}")
                     }
@@ -204,7 +222,92 @@ class CameraViewModel(
                 _uiState.update { it.copy(shutterSpeed = event.speed) }
             }
 
-// ... sisa kode lainnya ...
+            // --- HAPUS DismissPosePopup dan AcceptPoseSuggestion ---
+
+            is CameraEvent.TogglePoseSuggestion -> {
+                val nextActiveState = !_uiState.value.isPoseSuggestionActive
+                _uiState.update {
+                    it.copy(
+                        isPoseSuggestionActive = nextActiveState,
+                        aiPhase = if (nextActiveState) AiPhase.SCANNING else AiPhase.IDLE,
+                        // KOSONGKAN POSE SAAT DIMATIKAN
+                        currentPoseType = if (!nextActiveState) Y2KPoseType.HALF_BODY_COOL else it.currentPoseType
+                    )
+                }
+            }
+
+            is CameraEvent.ProcessPose -> {
+                _uiState.update {
+                    it.copy(
+                        currentPose = event.pose,
+                        poseImageWidth = event.imageWidth,
+                        poseImageHeight = event.imageHeight
+                    )
+                }
+            }
+
+            is CameraEvent.OnYoloScanComplete -> {
+                if (_uiState.value.aiPhase == AiPhase.SCANNING) {
+
+                    // JIKA YOLO DETEKSI BANYAK ORANG
+                    if (event.result.personCount >= 2) {
+                        _uiState.update {
+                            it.copy(aiPhase = AiPhase.GROUP_MATCH)
+                        }
+                        Log.d("VIBECHECK", "Mode Grup Aktif! Orang: ${event.result.personCount}")
+                    }
+                    // JIKA SENDIRIAN
+                    else {
+                        val recommendedPose = when (event.result.scene) {
+                            com.example.vibecheck_dev.domain.model.DetectedScene.NATURE -> {
+                                listOf(Y2KPoseType.FULL_BODY_WIDE, Y2KPoseType.FULL_BODY_ACTION).random()
+                            }
+                            else -> {
+                                listOf(Y2KPoseType.HALF_BODY_PEACE, Y2KPoseType.HALF_BODY_COOL).random()
+                            }
+                        }
+
+                        _uiState.update {
+                            it.copy(
+                                aiPhase = AiPhase.READY_TO_MATCH,
+                                currentPoseType = recommendedPose
+                            )
+                        }
+                    }
+                }
+            }
+
+            is CameraEvent.SetTargetPose -> {
+                _uiState.update { it.copy(currentPoseType = event.pose) }
+            }
+
+            is CameraEvent.SwitchAiPhase -> {
+                _uiState.update { it.copy(aiPhase = event.phase) }
+            }
+
+            is CameraEvent.CycleTargetPose -> {
+                val current = _uiState.value.currentPoseType
+                val nextPose = when (current) {
+                    // SIKLUS HALF BODY (7 Pose)
+                    Y2KPoseType.HALF_BODY_PEACE -> Y2KPoseType.HALF_BODY_COOL
+                    Y2KPoseType.HALF_BODY_COOL -> Y2KPoseType.HALF_BODY_SALUTE
+                    Y2KPoseType.HALF_BODY_SALUTE -> Y2KPoseType.HALF_BODY_FRAME
+                    Y2KPoseType.HALF_BODY_FRAME -> Y2KPoseType.HALF_BODY_FLEX
+                    Y2KPoseType.HALF_BODY_FLEX -> Y2KPoseType.HALF_BODY_POINT
+                    Y2KPoseType.HALF_BODY_POINT -> Y2KPoseType.HALF_BODY_GUNS
+                    Y2KPoseType.HALF_BODY_GUNS -> Y2KPoseType.HALF_BODY_PEACE
+
+                    // SIKLUS FULL BODY (7 Pose)
+                    Y2KPoseType.FULL_BODY_WIDE -> Y2KPoseType.FULL_BODY_ACTION
+                    Y2KPoseType.FULL_BODY_ACTION -> Y2KPoseType.FULL_BODY_HANDS_UP
+                    Y2KPoseType.FULL_BODY_HANDS_UP -> Y2KPoseType.FULL_BODY_T_POSE
+                    Y2KPoseType.FULL_BODY_T_POSE -> Y2KPoseType.FULL_BODY_ONE_UP
+                    Y2KPoseType.FULL_BODY_ONE_UP -> Y2KPoseType.FULL_BODY_HEAD
+                    Y2KPoseType.FULL_BODY_HEAD -> Y2KPoseType.FULL_BODY_CROSS
+                    Y2KPoseType.FULL_BODY_CROSS -> Y2KPoseType.FULL_BODY_WIDE
+                }
+                _uiState.update { it.copy(currentPoseType = nextPose) }
+            }
         }
     }
 

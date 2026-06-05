@@ -104,4 +104,10 @@ dependencies {
 
     implementation("androidx.print:print:1.0.0")
 
+    // 6. TensorFlow Lite (Untuk YOLOv8 Scene & Bounding Box Detection)
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+
+    // 6. ML Kit Face Detection (Untuk mendeteksi senyum)
+    implementation("com.google.mlkit:face-detection:16.1.7")
 }

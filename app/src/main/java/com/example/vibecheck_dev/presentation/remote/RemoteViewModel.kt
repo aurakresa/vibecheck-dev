@@ -39,14 +39,22 @@ class RemoteViewModel(
                         viewModelScope.launch(Dispatchers.Default) {
                             try {
                                 val payload = msg.removePrefix("CMD_FRAME_")
-                                val parts = payload.split("_", limit = 3)
 
-                                if (parts.size >= 3) {
+                                // Split payload pakai pemisah "|"
+                                val parts = payload.split("|", limit = 9)
+
+                                if (parts.size == 9) {
                                     val hardwareRotation = parts[0].toFloatOrNull() ?: 0f
                                     val isFrontCamera = parts[1].toBoolean()
-                                    val base64String = parts[2]
+                                    val phase = parts[2]
+                                    val pose = parts[3]
+                                    val matched = parts[4].toBoolean()
+                                    val ax = parts[5].toFloatOrNull() ?: 0f
+                                    val ay = parts[6].toFloatOrNull() ?: 0f
+                                    val scale = parts[7].toFloatOrNull() ?: 0f
+                                    val base64String = parts[8]
 
-                                    val bytes = Base64.decode(base64String, Base64.NO_WRAP)
+                                    val bytes = android.util.Base64.decode(base64String, android.util.Base64.NO_WRAP)
                                     val originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
 
                                     // 🛡️ CEGAH CRASH: Pastikan gambar nggak cacat gara-gara sinyal kepotong
@@ -59,13 +67,21 @@ class RemoteViewModel(
                                             originalBitmap, 0, 0, originalBitmap.width, originalBitmap.height, matrix, true
                                         )
 
-                                        _uiState.update { it.copy(remoteBitmap = rotatedBitmap) }
+                                        _uiState.update { it.copy(
+                                            remoteBitmap = rotatedBitmap,
+                                            aiPhase = phase,
+                                            currentPoseType = pose,
+                                            isPoseMatched = matched,
+                                            anchorX = ax,
+                                            anchorY = ay,
+                                            bodyScale = scale
+                                        ) }
                                     } else {
                                         Log.e("REMOTE_VM", "Frame korup di jalan, diabaikan.")
                                     }
                                 }
                             } catch (e: Throwable) {
-                                // 🛡️ PERBAIKAN: Gunakan Throwable untuk nangkap OutOfMemoryError, bukan cuma Exception biasa!
+                                // 🛡️ PERBAIKAN: Gunakan Throwable untuk nangkap OutOfMemoryError
                                 Log.e("REMOTE_VM", "Hardware kewalahan decode frame", e)
                             } finally {
                                 // Buka gembok biar frame selanjutnya bisa masuk
@@ -165,6 +181,13 @@ class RemoteViewModel(
             is RemoteEvent.SetShutterSpeed -> {
                 _uiState.update { it.copy(shutterSpeed = event.speed) }
                 p2pRepository.sendMessage("CMD_SHT_${event.speed}")
+            }
+
+            is RemoteEvent.ToggleAiMode -> {
+                val newState = !_uiState.value.isAiModeActive
+                _uiState.update { it.copy(isAiModeActive = newState) }
+                // Kirim perintah ke Host untuk nyalain/matiin AI!
+                p2pRepository.sendMessage("CMD_TOGGLE_AI")
             }
         }
     }

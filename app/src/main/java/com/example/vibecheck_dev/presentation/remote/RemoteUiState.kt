@@ -22,5 +22,14 @@ data class RemoteUiState(
     val aspectRatio: Int = AspectRatio.RATIO_4_3,
     val iso: Int = 100,
     val shutterSpeed: Long = 0L,
-    val isRecording: Boolean = false // Simulasi status rekaman di Remote
+    val isRecording: Boolean = false, // Simulasi status rekaman di Remote
+
+    // --- STATE AI REMOTE ---
+    val isAiModeActive: Boolean = false,
+    val aiPhase: String = "IDLE",
+    val currentPoseType: String = "HALF_BODY_PEACE",
+    val isPoseMatched: Boolean = false,
+    val anchorX: Float = 0f,
+    val anchorY: Float = 0f,
+    val bodyScale: Float = 0f
 )
