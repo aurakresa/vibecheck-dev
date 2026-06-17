@@ -1,28 +1,90 @@
 package com.example.vibecheck_dev.presentation.navigation
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Camera
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.ui.graphics.vector.ImageVector
+// Matriks Piksel 10x10 untuk menggambar ikon retro tanpa file eksternal
+object PixelIcons {
+    val HOME = listOf(
+        "    XX    ",
+        "   XXXX   ",
+        "  XX  XX  ",
+        " XX    XX ",
+        "XX      XX",
+        "X XXXXXX X",
+        "X X    X X",
+        "X X    X X",
+        "X XXXXXX X",
+        "          "
+    )
 
-// Tambahin nullable icon karena layar onboarding ga butuh icon di Bottom Nav
-sealed class Screen(val route: String, val title: String, val icon: ImageVector?) {
-    object Onboarding : Screen("onboarding_screen", "ONBOARDING", null)
+    val CAMERA = listOf(
+        "          ",
+        "  XXXXXX  ",
+        " XX    XX ",
+        " X  XX  X ",
+        " X X  X X ",
+        " X X  X X ",
+        " X  XX  X ",
+        " XX    XX ",
+        "  XXXXXX  ",
+        "          "
+    )
 
-    object Auth : Screen("auth_screen", "AUTH", null)
-    object Login : Screen("login_screen", "LOGIN", null)
-    object ProfileSetup : Screen("profile_setup_screen", "PROFILE", null)
-    object Permission : Screen("permission_screen", "PERMISSION", null)
+    val REMOTE = listOf(
+        "          ",
+        "          ",
+        " XXXXXXXX ",
+        "XX  XX  XX",
+        "X X XX X X",
+        "XX  XX  XX",
+        " XXXXXXXX ",
+        "          ",
+        "          ",
+        "          "
+    )
 
-    // Rute buat Bottom Nav
-    object Home : Screen("home_screen", "HOME", Icons.Default.Home)
-    object Host : Screen("camera_screen", "HOST", Icons.Default.Camera)
-    object Remote : Screen("remote_screen", "REMOTE", Icons.Default.PhoneAndroid)
+    val STUDIO = listOf(
+        "    XX    ",
+        "   XXXX   ",
+        "  XX  XX  ",
+        " XX    XX ",
+        "XX  XX  XX",
+        " XX    XX ",
+        "  XX  XX  ",
+        "   XXXX   ",
+        "    XX    ",
+        "          "
+    )
 
-    object Studio : Screen("studio_screen", "STUDIO", Icons.Default.Edit) // Import Icons.Default.Edit
+    val PURIKURA = listOf(
+        " XXXXXXXX ",
+        " XX    XX ",
+        " XX    XX ",
+        " XXXXXXXX ",
+        " XX    XX ",
+        " XX    XX ",
+        " XXXXXXXX ",
+        " XX    XX ",
+        " XX    XX ",
+        " XXXXXXXX "
+    )
+}
 
-    object Purikura : Screen("purikura_screen", "PURIKURA", Icons.Default.PhotoLibrary) // Import Icons.Default.PhotoLibrary
+// FIX: Tambahkan List<String>? = null agar layar yang tidak butuh ikon tidak error
+sealed class Screen(val route: String, val title: String, val pixelMatrix: List<String>? = null) {
+
+    // --- Layar Utama (Punya Ikon Pixel untuk Bottom Nav) ---
+    object Home : Screen("home", "HOME", PixelIcons.HOME)
+    object Camera : Screen("camera", "CAM.exe", PixelIcons.CAMERA)
+    object Remote : Screen("remote", "CTRL.bat", PixelIcons.REMOTE)
+    object Studio : Screen("studio", "STUDIO", PixelIcons.STUDIO)
+    object Purikura : Screen("purikura", "PURIKURA", PixelIcons.PURIKURA)
+
+    // --- Layar Auth & Setup (Tidak butuh ikon, cukup kosongin parameter ketiganya) ---
+    object Onboarding : Screen("onboarding_screen", "ONBOARDING")
+    object Auth : Screen("auth_screen", "AUTH")
+    object Login : Screen("login_screen", "LOGIN")
+    object ProfileSetup : Screen("profile_setup_screen", "PROFILE")
+    object Permission : Screen("permission_screen", "PERMISSION")
+    // ... rute lainnya ...
+    // TAMBAHIN INI BRO:
+    object Splash : Screen("splash_screen", "BOOT")
 }

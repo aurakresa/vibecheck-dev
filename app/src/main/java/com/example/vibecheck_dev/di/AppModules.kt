@@ -3,6 +3,7 @@ package com.example.vibecheck_dev.di
 import com.example.vibecheck_dev.data.repository_impl.P2pRepositoryImpl
 import com.example.vibecheck_dev.domain.repository.P2pRepository
 import com.example.vibecheck_dev.presentation.camera.CameraViewModel
+import com.example.vibecheck_dev.presentation.home.HomeViewModel
 import com.example.vibecheck_dev.presentation.purikura.PurikuraViewModel
 import com.example.vibecheck_dev.presentation.remote.RemoteViewModel
 import com.example.vibecheck_dev.presentation.studio.StudioViewModel
@@ -23,4 +24,5 @@ val appModule = module {
     viewModel { RemoteViewModel(get()) }
     viewModel { StudioViewModel() }
     viewModel { PurikuraViewModel() }
+    viewModel { HomeViewModel() }
 }

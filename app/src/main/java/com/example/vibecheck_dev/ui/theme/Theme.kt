@@ -13,50 +13,86 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
-private val DarkColorScheme = darkColorScheme(
-    primary = PixelCyan,
-    secondary = PixelMagenta,
-    background = PixelDarkBackground,
-    surface = PixelDarkSurface,
-    onPrimary = PixelDarkBackground, // Teks di atas warna Cyan jadi gelap
+// --- PALET WARNA Y2K ---
+private val NeonMagenta = Color(0xFFFF00FF)
+private val NeonCyan = Color(0xFF00FFFF)
+private val NeonGreen = Color(0xFF00FF00)
+
+private val MatrixGreen = Color(0xFF00FF41)
+private val MatrixDarkGreen = Color(0xFF008F11)
+
+private val UbuntuOrange = Color(0xFFE95420)
+private val UbuntuBg = Color(0xFF300A24)
+private val UbuntuSurface = Color(0xFF430C33)
+
+// --- WARNA CYBER CHROME (BARU - HIGH CONTRAST) ---
+private val ChromePrimary = Color(0xFFFF1493) // Hot Pink Tua
+private val ChromeSecondary = Color(0xFF0000CD) // Biru Elektrik Tua
+private val ChromeBg = Color(0xFFEBEBEB) // Silver Terang
+private val ChromeSurface = Color(0xFFD6D6D6) // Silver Agak Gelap (buat sidebar/menu)
+private val ChromeText = Color(0xFF1A1A1A) // Hampir Hitam
+
+// --- SKEMA WARNA MATERIAL TEMA ---
+private val Y2KNeonScheme = darkColorScheme(
+    primary = NeonMagenta,
+    secondary = NeonCyan,
+    tertiary = NeonGreen,
+    background = Color.Black,
+    surface = Color(0xFF050505),
     onBackground = Color.White,
     onSurface = Color.White
 )
 
-private val LightColorScheme = lightColorScheme(
-    primary = PixelPurple,
-    secondary = PixelTeal,
-    background = PixelLightBackground,
-    surface = PixelLightSurface,
-    onPrimary = Color.White,
-    onBackground = PixelDarkBackground,
-    onSurface = PixelDarkBackground
+private val MatrixScheme = darkColorScheme(
+    primary = MatrixGreen,
+    secondary = MatrixDarkGreen,
+    tertiary = MatrixGreen,
+    background = Color(0xFF050505),
+    surface = Color.Black,
+    onBackground = MatrixGreen,
+    onSurface = MatrixGreen
+)
+
+private val UbuntuScheme = darkColorScheme(
+    primary = UbuntuOrange,
+    secondary = Color.White,
+    tertiary = UbuntuOrange,
+    background = UbuntuBg,
+    surface = UbuntuSurface,
+    onBackground = Color.White,
+    onSurface = Color.White
+)
+
+private val CyberChromeScheme = lightColorScheme(
+    primary = ChromePrimary,
+    secondary = ChromeSecondary,
+    tertiary = ChromePrimary,
+    background = ChromeBg,
+    surface = ChromeSurface,
+    onBackground = ChromeText,
+    onSurface = ChromeText,
+    error = Color(0xFFD32F2F)
 )
 
 @Composable
 fun VibeCheckdevTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Ubah default dynamicColor menjadi false
-    dynamicColor: Boolean = false,
+    themeName: String = "Y2K BRIGHT NEON",
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        // Kita biarkan logika ini berjaga-jaga jika nanti kamu ingin menyalakannya lagi
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = androidx.compose.ui.platform.LocalContext.current
-            if (darkTheme) androidx.compose.material3.dynamicDarkColorScheme(context) else androidx.compose.material3.dynamicLightColorScheme(context)
-        }
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme // Untuk aplikasi kamera, saya sarankan paksa DarkMode terus
+    val colorScheme = when (themeName) {
+        "MATRIX TERMINAL" -> MatrixScheme
+        "UBUNTU DARK" -> UbuntuScheme
+        "CYBER CHROME (LIGHT)" -> CyberChromeScheme
+        else -> Y2KNeonScheme
     }
 
-    // Mengubah warna status bar (jam & baterai di atas layar) agar sesuai tema
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            // Kalau temanya Light (Cyber Chrome), icon jam & baterai di HP dihitamin biar kelihatan
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = themeName == "CYBER CHROME (LIGHT)"
         }
     }
 
