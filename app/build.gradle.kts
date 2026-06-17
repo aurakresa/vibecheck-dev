@@ -57,7 +57,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.play.services.auth)
     implementation(libs.androidx.compose.foundation)
+
 //    implementation(libs.androidx.ui.graphics)
+    testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -1,6 +1,7 @@
 package com.example.vibecheck_dev.presentation.remote
 
 import android.content.ContentUris
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -8,6 +9,7 @@ import android.net.wifi.p2p.WifiP2pDevice
 import android.os.Build
 import android.provider.MediaStore
 import android.util.Log
+import android.widget.Toast
 import androidx.camera.core.AspectRatio
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -53,6 +55,9 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
     val peers by viewModel.peersList.collectAsState(initial = emptyList())
     val connectionInfo by viewModel.connectionInfo.collectAsState(initial = null)
 
+    // 🛡️ KUNCI GERBANG ANTI-LELET
+    val isConnectedToRemote = connectionInfo?.groupFormed == true && !uiState.isHostDisconnected
+
     var isScanning by remember { mutableStateOf(true) }
     var connectedHostAddress by remember { mutableStateOf("") }
 
@@ -64,11 +69,12 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
         latestPhotoUri = getRemoteLatestVibeCheckImage(context)
     }
 
-    LaunchedEffect(connectionInfo?.groupFormed) {
-        if (connectionInfo?.groupFormed == false && !isScanning) {
+    // 🛡️ REVISI MUTLAK: Gunakan isConnectedToRemote sebagai pemicu untuk nendang UI!
+    LaunchedEffect(isConnectedToRemote) {
+        // Kalau statusnya terputus (karena Host mati atau Sinyal Watchdog), langsung tendang ke Scanner!
+        if (!isConnectedToRemote && !isScanning) {
             isScanning = true
             connectedHostAddress = ""
-            viewModel.onEvent(RemoteEvent.Disconnect)
         }
     }
 
@@ -82,6 +88,18 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(Unit) {
+        viewModel.savePhotoTrigger.collect { bytes ->
+            val savedUri = savePhotoToRemoteGallery(context, bytes)
+            if (savedUri != null) {
+                latestPhotoUri = savedUri // Update thumbnail album Remote
+                Toast.makeText(context, "Foto diterima & tersimpan di Remote!", Toast.LENGTH_LONG)
+                    .show()
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            }
+        }
+    }
+
     val is169 = uiState.aspectRatio == AspectRatio.RATIO_16_9
 
     val isoList = listOf(100, 400, 800, 1600, 3200)
@@ -89,9 +107,11 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
     val shutterLabels = listOf("AUTO", "1/15", "1/30", "1/60", "1/120")
     val coroutineScope = rememberCoroutineScope()
 
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(Color.Black)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
 
         if (isScanning) {
             P2pScannerOverlay(
@@ -109,14 +129,16 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
                 onConnect = { deviceAddress ->
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     connectedHostAddress = deviceAddress
-                    isScanning = false
+                    isScanning = false // Masuk ke mode nunggu kamera
                     viewModel.onEvent(RemoteEvent.ConnectToDevice(deviceAddress))
                 }
             )
         } else {
-            Box(modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = if (is169) 0.dp else 120.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = if (is169) 0.dp else 120.dp)
+            ) {
 
                 if (uiState.remoteBitmap != null) {
                     // 1. RENDER VIDEO STREAM (LAPISAN DASAR)
@@ -137,8 +159,8 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
                             }
 
                             "READY_TO_MATCH" -> {
-                                if (uiState.bodyScale > 0f) {
-                                    // Convert string balik ke Enum Y2KPoseType
+                                // --- KAWAT CUMA MUNCUL KALAU ADA ORANG ---
+                                if (uiState.isPersonDetected && uiState.bodyScale > 0f) {
                                     val poseEnum = try {
                                         com.example.vibecheck_dev.presentation.camera.Y2KPoseType.valueOf(
                                             uiState.currentPoseType
@@ -373,9 +395,11 @@ fun RemoteScreen(viewModel: RemoteViewModel, onNavigateBack: () -> Unit) {
                     .background(btmBg)
                     .border(if (is169) 0.dp else 2.dp, Color.DarkGray, RectangleShape)
             ) {
-                Box(modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 32.dp)) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 32.dp)
+                ) {
 
                     if (!uiState.isRecording) {
                         Box(modifier = Modifier.align(Alignment.CenterStart)) {
@@ -524,13 +548,15 @@ private fun RemoteAlbumThumbnail(uri: Uri?, onClick: () -> Unit) {
 private fun RemoteProControlBtn(label: String, value: String, onClick: () -> Unit) {
     Column(
         modifier = Modifier
+            .size(56.dp)
             .background(Color.Black.copy(alpha = 0.7f))
             .border(1.dp, Color.Green, RectangleShape)
-            .clickable { onClick() }
-            .padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .clickable { onClick() },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
     ) {
-        Text(label, color = Color.Green, fontSize = 10.sp)
+        Text(label, color = Color.Green, fontSize = 10.sp, style = Y2KTypography.bodySmall)
+        Spacer(modifier = Modifier.height(2.dp))
         Text(value, color = Color.White, style = Y2KTypography.bodyMedium)
     }
 }
@@ -556,7 +582,6 @@ fun P2pScannerOverlay(
     onRefresh: () -> Unit,
     onConnect: (String) -> Unit
 ) {
-    // --- SEDOT WARNA DINAMIS DARI TEMA ---
     val bgColor = MaterialTheme.colorScheme.background
     val surfaceColor = MaterialTheme.colorScheme.surface
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -572,11 +597,10 @@ fun P2pScannerOverlay(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // Kotak Overlay utama
         Box(
             modifier = Modifier
                 .border(2.dp, primaryColor, RectangleShape)
-                .background(surfaceColor.copy(alpha = 0.95f)) // Pakai warna surface dengan sedikit transparansi
+                .background(surfaceColor.copy(alpha = 0.95f))
                 .padding(24.dp)
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -689,4 +713,24 @@ fun P2pScannerOverlay(
             }
         }
     }
+}
+
+fun savePhotoToRemoteGallery(context: Context, byteArray: ByteArray): Uri? {
+    val name = java.text.SimpleDateFormat("yyyy-MM-dd-HH-mm-ss-SSS", java.util.Locale.US)
+        .format(System.currentTimeMillis())
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) {
+            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VibeCheck")
+        }
+    }
+    val uri =
+        context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+    uri?.let {
+        context.contentResolver.openOutputStream(it)?.use { os ->
+            os.write(byteArray)
+        }
+    }
+    return uri
 }

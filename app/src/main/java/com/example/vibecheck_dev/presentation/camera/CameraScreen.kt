@@ -97,8 +97,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
     var poseMatchStartTime by remember { mutableStateOf(0L) }
 
     val faceOptions = FaceDetectorOptions.Builder()
-        .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL)
-        .build()
+        .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_ALL).build()
     val faceDetector = PoseDetection.getClient(options) // Pose
     val faceClient = FaceDetection.getClient(faceOptions) // Wajah
 
@@ -119,30 +118,35 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
 
     val is169 = uiState.aspectRatio == AspectRatio.RATIO_16_9
 
-    val previewView = remember { PreviewView(context) }
 
-    val preview = remember(uiState.aspectRatio) {
+    // 🛡️ KEMBALIKAN isVideoMode KESINI BIAR EXYNOS SAMSUNG GAK BLACK SCREEN!
+    val preview = remember(uiState.aspectRatio, uiState.isVideoMode) {
         Preview.Builder().setTargetAspectRatio(uiState.aspectRatio).build()
     }
-    val imageCapture = remember(uiState.aspectRatio) {
+    val imageCapture = remember(uiState.aspectRatio, uiState.isVideoMode) {
         ImageCapture.Builder().setTargetAspectRatio(uiState.aspectRatio).build()
     }
-    val imageAnalysis = remember(uiState.aspectRatio) {
+    val imageAnalysis = remember(uiState.aspectRatio, uiState.isVideoMode) {
         ImageAnalysis.Builder()
             .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-            .setTargetResolution(Size(480, 360))
+            .setTargetResolution(Size(640, 480))
             .build()
     }
 
+    // 🛡️ PASANG KANVAS DI SINI! (Cuma dieksekusi 1x, jaminan anti black-screen)
+
+    val previewView = remember {
+        PreviewView(context).apply { scaleType = PreviewView.ScaleType.FILL_CENTER }
+    }
+
+    val isRequestingUltrawide = uiState.zoomRatio < 1f || uiState.isUltrawideActive
+
     val recorder = remember {
-        Recorder.Builder()
-            .setQualitySelector(
-                QualitySelector.from(
-                    Quality.HIGHEST,
-                    FallbackStrategy.lowerQualityOrHigherThan(Quality.HD)
-                )
+        Recorder.Builder().setQualitySelector(
+            QualitySelector.from(
+                Quality.HD, FallbackStrategy.lowerQualityOrHigherThan(Quality.SD)
             )
-            .build()
+        ).build()
     }
     val videoCapture = remember { VideoCapture.withOutput(recorder) }
 
@@ -167,6 +171,15 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
     val realTimeIsConnected by rememberUpdatedState(newValue = isConnectedToRemote)
     val realTimeUiState by rememberUpdatedState(newValue = uiState)
 
+    // --- TAMBAH INI: INISIALISASI SUARA SHUTTER BAWAAN HP ---
+    val mediaActionSound = remember {
+        android.media.MediaActionSound()
+            .apply { load(android.media.MediaActionSound.SHUTTER_CLICK) }
+    }
+    DisposableEffect(Unit) {
+        onDispose { mediaActionSound.release() }
+    }
+
     LaunchedEffect(Unit) { latestPhotoUri = getLatestVibeCheckImage(context) }
 
     LaunchedEffect(isRecording) {
@@ -175,6 +188,57 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
             while (activeRecording != null) {
                 delay(1000)
                 recordingSeconds++
+            }
+        }
+    }
+
+    // 🚀 HACK DEWA: "Maling" frame dari layar UI Host buat dikirim ke Remote! 🚀
+    LaunchedEffect(uiState.isVideoMode, isConnectedToRemote, uiState.lensFacing) {
+        if (uiState.isVideoMode && isConnectedToRemote) {
+            while (true) {
+                kotlinx.coroutines.delay(100) // Maling gambar setiap 100ms (10 FPS)
+                val uiBitmap = previewView.bitmap // 🔥 AMBIL GAMBAR LANGSUNG DARI KANVAS LAYAR!
+
+                if (uiBitmap != null) {
+                    withContext(Dispatchers.IO) {
+                        try {
+                            val scale = 800f / maxOf(uiBitmap.width, uiBitmap.height)
+                            val matrix = android.graphics.Matrix()
+                            matrix.postScale(scale, scale)
+
+                            val resizedBitmap = android.graphics.Bitmap.createBitmap(
+                                uiBitmap, 0, 0, uiBitmap.width, uiBitmap.height, matrix, true
+                            )
+                            val stream = java.io.ByteArrayOutputStream()
+                            resizedBitmap.compress(
+                                android.graphics.Bitmap.CompressFormat.JPEG,
+                                60,
+                                stream
+                            )
+
+                            // Kirim ke Remote layaknya frame biasa!
+                            viewModel.onEvent(
+                                CameraEvent.SendVideoFrame(
+                                    byteArray = stream.toByteArray(),
+                                    rotationDegrees = 0, // Gambar dari PreviewView udah otomatis tegak lurus
+                                    isFrontCamera = uiState.lensFacing == CameraSelector.LENS_FACING_FRONT,
+                                    aiPhase = "IDLE", // AI kita matikan paksa di mode video
+                                    poseType = "HALF_BODY_PEACE",
+                                    isMatched = false,
+                                    anchorX = 0f,
+                                    anchorY = 0f,
+                                    bodyScale = 0f,
+                                    isPersonDetected = false
+                                )
+                            )
+                            resizedBitmap.recycle()
+                        } catch (e: Exception) {
+                            Log.e("HACK_P2P", "Gagal maling frame", e)
+                        } finally {
+                            uiBitmap.recycle() // 🛡️ Wajib recycle biar RAM gak meledak!
+                        }
+                    }
+                }
             }
         }
     }
@@ -188,7 +252,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
         }
     }
 
-    LaunchedEffect(previewView, preview) { preview.setSurfaceProvider(previewView.surfaceProvider) }
+//    LaunchedEffect(previewView, preview) { preview.setSurfaceProvider(previewView.surfaceProvider) }
 
     LaunchedEffect(uiState.flashMode, imageCapture, uiState.isVideoMode, cameraControl) {
         imageCapture.flashMode = uiState.flashMode
@@ -200,7 +264,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
 
     LaunchedEffect(
         uiState.lensFacing,
-        uiState.isUltrawideActive,
+        isRequestingUltrawide, // <--- INI KUNCI BIAR ULTRAWIDE REMOTE KEBACA!
         uiState.isVideoMode,
         preview,
         imageCapture,
@@ -224,8 +288,10 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
             } catch (e: Exception) {
             }
 
+
             val cameraSelector =
-                if (uiState.isUltrawideActive && uiState.lensFacing == CameraSelector.LENS_FACING_BACK && !canNativeMinZoom) {
+                if (isRequestingUltrawide && uiState.lensFacing == CameraSelector.LENS_FACING_BACK && !canNativeMinZoom) {
+                    // 🛡️ BLOKIRAN DIBUKA! Biarkan Double Fallback yang ngetes kuat atau nggaknya.
                     CameraSelector.Builder().requireLensFacing(CameraSelector.LENS_FACING_BACK)
                         .addCameraFilter { cameraInfos ->
                             val sorted = cameraInfos.sortedBy { info ->
@@ -244,11 +310,14 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                 }
 
             try {
+                imageAnalysis.clearAnalyzer()
                 cameraProvider.unbindAll()
-                val useCases = mutableListOf<UseCase>(preview)
+
+                val useCases = mutableListOf<UseCase>()
+                useCases.add(preview)
+
                 if (uiState.isVideoMode) {
-                    useCases.add(videoCapture)
-                    useCases.add(imageAnalysis)
+                    if (videoCapture != null) useCases.add(videoCapture)
                 } else {
                     useCases.add(imageCapture)
                     useCases.add(imageAnalysis)
@@ -261,305 +330,301 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                         cameraSelector,
                         *useCases.toTypedArray()
                     )
-                } catch (e: IllegalArgumentException) {
-                    Log.e("CAMERA_LOG", "Use case gagal di-bind", e)
+                } catch (e: Exception) {
+                    try {
+                        useCases.remove(imageAnalysis)
+                        camera = cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            *useCases.toTypedArray()
+                        )
+                    } catch (e2: Exception) {
+                        useCases.remove(videoCapture)
+                        useCases.add(imageCapture)
+                        camera = cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            cameraSelector,
+                            *useCases.toTypedArray()
+                        )
+                        Toast.makeText(
+                            context,
+                            "OS memblokir Video Ultrawide di Camera API, kembali ke Mode Foto!",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
                 }
 
-                cameraControl = camera?.cameraControl
-                cameraInfo = camera?.cameraInfo
+                // 🛡️ PENAWAR DELAY BLACK SCREEN: Pasang kanvas TEPAT setelah bind berhasil!
+                preview.setSurfaceProvider(previewView.surfaceProvider)
 
-                val minZ = camera?.cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f
-                if (minZ < 1f) dynamicMinZoom = minZ
+                // 🛡️ PERHATIKAN: TIDAK ADA setSurfaceProvider DI SINI! (Sudah aman)
 
-                cameraControl?.setZoomRatio(if (uiState.isUltrawideActive && minZ >= 1f) 1f else uiState.zoomRatio)
+                camera?.let { cam ->
+                    cameraControl = cam.cameraControl
+                    cameraInfo = cam.cameraInfo
+
+                    cam.cameraInfo.zoomState.observe(lifecycleOwner) { zoomState ->
+                        // 🛡️ HACK DEWA: Bohongi Remote kalau kita pakai lensa Ultrawide Fisik!
+                        // Biar slider di Remote nggak mental balik ke 1.0
+                        val reportedMinZoom =
+                            if (isRequestingUltrawide && !canNativeMinZoom) 0.5f else zoomState.minZoomRatio
+                        viewModel.onEvent(
+                            CameraEvent.UpdateHardwareSpecs(
+                                minZoom = reportedMinZoom, maxZoom = zoomState.maxZoomRatio
+                            )
+                        )
+                    }
+
+                    val minZ = cam.cameraInfo.zoomState.value?.minZoomRatio ?: 1f
+                    if (minZ < 1f) dynamicMinZoom = minZ
+
+                    val applyZoom =
+                        if (isRequestingUltrawide && minZ >= 1f) 1f else if (uiState.zoomRatio < minZ) minZ else uiState.zoomRatio
+                    cameraControl?.setZoomRatio(
+                        applyZoom.coerceIn(
+                            minZ,
+                            cam.cameraInfo.zoomState.value?.maxZoomRatio ?: 1f
+                        )
+                    )
+                }
 
                 var isYoloProcessing = false
                 var isPoseProcessing = false
                 var isSendingFrame = false
+                var lastAnalyzedTimestamp = 0L
 
-                if (!realTimeUiState.isVideoMode) {
-                    var lastAnalyzedTimestamp = 0L
 
-                    imageAnalysis.setAnalyzer(backgroundExecutor) { imageProxy ->
-                        val mediaImage = imageProxy.image
-                        if (mediaImage == null) {
+
+
+                imageAnalysis.setAnalyzer(backgroundExecutor) { imageProxy ->
+                    val mediaImage = imageProxy.image
+                    if (mediaImage == null) {
+                        imageProxy.close()
+                        return@setAnalyzer
+                    }
+
+                    val currentTimestamp = System.currentTimeMillis()
+                    val rotation = imageProxy.imageInfo.rotationDegrees
+
+                    // GUNAKAN VARIABEL REAL-TIME DI SINI!
+                    val isFrontCamera =
+                        realTimeUiState.lensFacing == CameraSelector.LENS_FACING_FRONT
+
+                    // ====================================================================
+                    // JALUR 1: KHUSUS P2P VIDEO STREAMING
+                    // ====================================================================
+                    // Cek koneksi pakai realTimeIsConnected!
+                    if (realTimeIsConnected && !isSendingFrame && (currentTimestamp - lastAnalyzedTimestamp >= 100)) {
+                        lastAnalyzedTimestamp = currentTimestamp
+                        isSendingFrame = true
+
+                        val p2pBitmap = try {
+                            imageProxy.toBitmap()
+                        } catch (e: Exception) {
                             imageProxy.close()
+                            isSendingFrame = false
                             return@setAnalyzer
                         }
+                        imageProxy.close()
 
-                        val currentTimestamp = System.currentTimeMillis()
-                        val rotation = imageProxy.imageInfo.rotationDegrees
+                        coroutineScope.launch(Dispatchers.Default) {
+                            try {
+                                val scale = 800f / maxOf(p2pBitmap.width, p2pBitmap.height)
+                                val matrix = android.graphics.Matrix()
+                                matrix.postScale(scale, scale)
+                                val resizedBitmap = android.graphics.Bitmap.createBitmap(
+                                    p2pBitmap, 0, 0, p2pBitmap.width, p2pBitmap.height, matrix, true
+                                )
+                                val stream = java.io.ByteArrayOutputStream()
+                                resizedBitmap.compress(
+                                    android.graphics.Bitmap.CompressFormat.JPEG, 60, stream
+                                )
 
-                        // GUNAKAN VARIABEL REAL-TIME DI SINI!
-                        val isFrontCamera =
-                            realTimeUiState.lensFacing == CameraSelector.LENS_FACING_FRONT
-
-                        // ====================================================================
-                        // JALUR 1: KHUSUS P2P VIDEO STREAMING
-                        // ====================================================================
-                        // Cek koneksi pakai realTimeIsConnected!
-                        if (realTimeIsConnected && !isSendingFrame && (currentTimestamp - lastAnalyzedTimestamp >= 100)) {
-                            lastAnalyzedTimestamp = currentTimestamp
-                            isSendingFrame = true
-
-                            val p2pBitmap = try {
-                                imageProxy.toBitmap()
+                                // Ganti pemanggilan viewModel.onEvent sebelumnya dengan ini:
+                                viewModel.onEvent(
+                                    CameraEvent.SendVideoFrame(
+                                        stream.toByteArray(),
+                                        rotation,
+                                        isFrontCamera,
+                                        realTimeUiState.aiPhase.name,
+                                        realTimeUiState.currentPoseType.name,
+                                        isPoseMatched,
+                                        userAnchorX,
+                                        userAnchorY,
+                                        userBodyScale,
+                                        isPersonDetected
+                                    )
+                                )
+                                resizedBitmap.recycle()
                             } catch (e: Exception) {
-                                imageProxy.close()
+                                Log.e("P2P", "Gagal kirim frame", e)
+                            } finally {
+                                p2pBitmap.recycle()
                                 isSendingFrame = false
-                                return@setAnalyzer
                             }
-                            imageProxy.close()
+                        }
+                        return@setAnalyzer
+                    }
 
-                            coroutineScope.launch(Dispatchers.Default) {
-                                try {
-                                    val scale = 800f / maxOf(p2pBitmap.width, p2pBitmap.height)
-                                    val matrix = android.graphics.Matrix()
-                                    matrix.postScale(scale, scale)
-                                    val resizedBitmap = android.graphics.Bitmap.createBitmap(
-                                        p2pBitmap,
-                                        0,
-                                        0,
-                                        p2pBitmap.width,
-                                        p2pBitmap.height,
-                                        matrix,
-                                        true
-                                    )
-                                    val stream = java.io.ByteArrayOutputStream()
-                                    resizedBitmap.compress(
-                                        android.graphics.Bitmap.CompressFormat.JPEG,
-                                        60,
-                                        stream
-                                    )
+                    // ====================================================================
+                    // JALUR 2: ENSEMBLE AI
+                    // ====================================================================
+                    // Cek status AI pakai realTimeUiState!
+                    if (realTimeUiState.isPoseSuggestionActive) {
 
-                                    // Ganti pemanggilan viewModel.onEvent sebelumnya dengan ini:
-                                    viewModel.onEvent(
-                                        CameraEvent.SendVideoFrame(
-                                            stream.toByteArray(),
-                                            rotation,
-                                            isFrontCamera,
-                                            realTimeUiState.aiPhase.name,
-                                            realTimeUiState.currentPoseType.name,
-                                            isPoseMatched,
-                                            userAnchorX,
-                                            userAnchorY,
-                                            userBodyScale
+                        // --- FASE 1: YOLO SCANNING ---
+                        if (realTimeUiState.aiPhase == AiPhase.SCANNING) {
+                            if (!isYoloProcessing) {
+                                isYoloProcessing = true
+
+                                val yoloBitmap = imageProxy.toBitmap()
+                                imageProxy.close()
+
+                                coroutineScope.launch(Dispatchers.Default) {
+                                    try {
+                                        val matrix = android.graphics.Matrix()
+                                        matrix.postRotate(rotation.toFloat())
+                                        if (isFrontCamera) matrix.postScale(
+                                            -1f, 1f, yoloBitmap.width / 2f, yoloBitmap.height / 2f
                                         )
-                                    )
-                                    resizedBitmap.recycle()
-                                } catch (e: Exception) {
-                                    Log.e("P2P", "Gagal kirim frame", e)
-                                } finally {
-                                    p2pBitmap.recycle()
-                                    isSendingFrame = false
+
+                                        val softwareBitmap = android.graphics.Bitmap.createBitmap(
+                                            yoloBitmap,
+                                            0,
+                                            0,
+                                            yoloBitmap.width,
+                                            yoloBitmap.height,
+                                            matrix,
+                                            true
+                                        )
+
+                                        val yoloResult = yoloAnalyzer.analyzeFrame(softwareBitmap)
+                                        kotlinx.coroutines.delay(3000)
+                                        viewModel.onEvent(
+                                            CameraEvent.OnYoloScanComplete(
+                                                yoloResult
+                                            )
+                                        )
+                                        softwareBitmap.recycle()
+                                    } catch (e: Exception) {
+                                        Log.e("YOLO", "Error", e)
+                                    } finally {
+                                        yoloBitmap.recycle()
+                                        isYoloProcessing = false
+                                    }
                                 }
+                            } else {
+                                imageProxy.close()
                             }
-                            return@setAnalyzer
                         }
 
-                        // ====================================================================
-                        // JALUR 2: ENSEMBLE AI
-                        // ====================================================================
-                        // Cek status AI pakai realTimeUiState!
-                        if (realTimeUiState.isPoseSuggestionActive) {
+                        // --- FASE 3: SOLO MODE (ML KIT TRACKING) ---
+                        else if (realTimeUiState.aiPhase == AiPhase.READY_TO_MATCH) {
+                            if (!isPoseProcessing) {
+                                isPoseProcessing = true
 
-                            // --- FASE 1: YOLO SCANNING ---
-                            if (realTimeUiState.aiPhase == AiPhase.SCANNING) {
-                                if (!isYoloProcessing) {
-                                    isYoloProcessing = true
+                                val isPortrait = rotation == 90 || rotation == 270
+                                val imgW =
+                                    (if (isPortrait) imageProxy.height else imageProxy.width).toFloat()
+                                val imgH =
+                                    (if (isPortrait) imageProxy.width else imageProxy.height).toFloat()
 
-                                    val yoloBitmap = imageProxy.toBitmap()
-                                    imageProxy.close()
+                                val image = InputImage.fromMediaImage(mediaImage, rotation)
 
-                                    coroutineScope.launch(Dispatchers.Default) {
-                                        try {
-                                            val matrix = android.graphics.Matrix()
-                                            matrix.postRotate(rotation.toFloat())
-                                            if (isFrontCamera) matrix.postScale(
-                                                -1f,
-                                                1f,
-                                                yoloBitmap.width / 2f,
-                                                yoloBitmap.height / 2f
-                                            )
-
-                                            val softwareBitmap =
-                                                android.graphics.Bitmap.createBitmap(
-                                                    yoloBitmap,
-                                                    0,
-                                                    0,
-                                                    yoloBitmap.width,
-                                                    yoloBitmap.height,
-                                                    matrix,
-                                                    true
-                                                )
-
-                                            val yoloResult =
-                                                yoloAnalyzer.analyzeFrame(softwareBitmap)
-                                            kotlinx.coroutines.delay(3000)
-                                            viewModel.onEvent(
-                                                CameraEvent.OnYoloScanComplete(
-                                                    yoloResult
-                                                )
-                                            )
-                                            softwareBitmap.recycle()
-                                        } catch (e: Exception) {
-                                            Log.e("YOLO", "Error", e)
-                                        } finally {
-                                            yoloBitmap.recycle()
-                                            isYoloProcessing = false
-                                        }
-                                    }
-                                } else {
-                                    imageProxy.close()
-                                }
-                            }
-
-                            // --- FASE 3: SOLO MODE (ML KIT TRACKING) ---
-                            else if (realTimeUiState.aiPhase == AiPhase.READY_TO_MATCH) {
-                                if (!isPoseProcessing) {
-                                    isPoseProcessing = true
-
-                                    val isPortrait = rotation == 90 || rotation == 270
-                                    val imgW =
-                                        (if (isPortrait) imageProxy.height else imageProxy.width).toFloat()
-                                    val imgH =
-                                        (if (isPortrait) imageProxy.width else imageProxy.height).toFloat()
-
-                                    val image = InputImage.fromMediaImage(mediaImage, rotation)
-
-                                    poseDetector.process(image).addOnSuccessListener { pose ->
-                                        faceClient.process(image).addOnSuccessListener { faces ->
-
-                                            if (faces.size >= 2) {
-                                                viewModel.onEvent(CameraEvent.SwitchAiPhase(AiPhase.GROUP_MATCH))
-                                                return@addOnSuccessListener
-                                            }
-
-                                            val ls =
-                                                pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
-                                            val rs =
-                                                pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
-
-                                            if (ls != null && rs != null && ls.inFrameLikelihood > 0.4f) {
-                                                isPersonDetected = true
-                                                val midShoulderX =
-                                                    (ls.position.x + rs.position.x) / 2f
-                                                val midShoulderY =
-                                                    (ls.position.y + rs.position.y) / 2f
-                                                userAnchorX =
-                                                    if (isFrontCamera) 1f - (midShoulderX / imgW) else (midShoulderX / imgW)
-                                                userAnchorY = midShoulderY / imgH
-                                                userBodyScale =
-                                                    Math.abs(ls.position.x - rs.position.x) / imgW
-
-                                                val lw =
-                                                    pose.getPoseLandmark(PoseLandmark.LEFT_WRIST)
-                                                val rw =
-                                                    pose.getPoseLandmark(PoseLandmark.RIGHT_WRIST)
-
-                                                if (lw != null && rw != null) {
-                                                    val lwY = lw.position.y / imgH;
-                                                    val rwY = rw.position.y / imgH
-                                                    val lsY = ls.position.y / imgH;
-                                                    val rsY = rs.position.y / imgH
-                                                    val lwX = lw.position.x / imgW;
-                                                    val rwX = rw.position.x / imgW
-                                                    val lsX = ls.position.x / imgW;
-                                                    val rsX = rs.position.x / imgW
-
-                                                    val leftHandUp = lwY < lsY - 0.05f;
-                                                    val rightHandUp = rwY < rsY - 0.05f
-                                                    val leftHandWayUp = lwY < lsY - 0.15f;
-                                                    val rightHandWayUp = rwY < rsY - 0.15f
-                                                    val leftHandLow = lwY > lsY + 0.1f;
-                                                    val rightHandLow = rwY > rsY + 0.1f
-                                                    val leftHandMid =
-                                                        lwY > lsY - 0.1f && lwY < lsY + 0.3f
-                                                    val rightHandMid =
-                                                        rwY > rsY - 0.1f && rwY < rsY + 0.3f
-
-                                                    val isLeftHandOnChest =
-                                                        lwY > lsY && lwY < lsY + 0.4f && lwX > minOf(
-                                                            lsX,
-                                                            rsX
-                                                        ) && lwX < maxOf(lsX, rsX)
-                                                    val isRightHandOnChest =
-                                                        rwY > rsY && rwY < rsY + 0.4f && rwX > minOf(
-                                                            lsX,
-                                                            rsX
-                                                        ) && rwX < maxOf(lsX, rsX)
-                                                    val wristsSpread =
-                                                        Math.abs(lwX - rwX) > (Math.abs(lsX - rsX) * 1.5f)
-                                                    val wristsCloseToFace =
-                                                        Math.abs(lwX - rwX) < (Math.abs(lsX - rsX) * 1.0f)
-
-                                                    // Pastikan pakai realTimeUiState untuk nangkep perubahan pose!
-                                                    isPoseMatched =
-                                                        when (realTimeUiState.currentPoseType) {
-                                                            Y2KPoseType.HALF_BODY_PEACE -> (leftHandUp && rightHandLow) || (leftHandLow && rightHandUp)
-                                                            Y2KPoseType.HALF_BODY_COOL -> isLeftHandOnChest && isRightHandOnChest
-                                                            Y2KPoseType.HALF_BODY_SALUTE -> (leftHandWayUp && rightHandLow) || (leftHandLow && rightHandWayUp)
-                                                            Y2KPoseType.HALF_BODY_FRAME -> leftHandMid && rightHandMid && wristsCloseToFace
-                                                            Y2KPoseType.HALF_BODY_FLEX -> leftHandUp && rightHandUp && wristsSpread
-                                                            Y2KPoseType.HALF_BODY_POINT -> (leftHandMid && rightHandLow) || (leftHandLow && rightHandMid)
-                                                            Y2KPoseType.HALF_BODY_GUNS -> leftHandMid && rightHandMid && wristsCloseToFace
-
-                                                            Y2KPoseType.FULL_BODY_WIDE -> leftHandLow && rightHandLow && wristsSpread
-                                                            Y2KPoseType.FULL_BODY_ACTION -> leftHandUp || rightHandUp
-                                                            Y2KPoseType.FULL_BODY_HANDS_UP -> leftHandWayUp && rightHandWayUp
-                                                            Y2KPoseType.FULL_BODY_T_POSE -> leftHandMid && rightHandMid && wristsSpread
-                                                            Y2KPoseType.FULL_BODY_ONE_UP -> (leftHandWayUp && rightHandLow) || (leftHandLow && rightHandWayUp)
-                                                            Y2KPoseType.FULL_BODY_HEAD -> leftHandUp && rightHandUp && wristsCloseToFace
-                                                            Y2KPoseType.FULL_BODY_CROSS -> isLeftHandOnChest && isRightHandOnChest
-                                                        }
-                                                } else isPoseMatched = false
-                                            } else {
-                                                isPersonDetected = false; isPoseMatched = false
-                                            }
-
-                                            val currentTime = System.currentTimeMillis()
-                                            if (isPoseMatched) {
-                                                if (poseMatchStartTime == 0L) poseMatchStartTime =
-                                                    currentTime
-                                                if ((faces.firstOrNull()?.smilingProbability?.let { it > 0.15f } == true || currentTime - poseMatchStartTime > 1500L)
-                                                    && (currentTime - lastPhotoTakenTime > 3000L)) {
-                                                    lastPhotoTakenTime = currentTime
-                                                    poseMatchStartTime = 0L
-                                                    viewModel.onEvent(CameraEvent.TakePhotoLocal)
-                                                    viewModel.onEvent(CameraEvent.CycleTargetPose)
-                                                }
-                                            } else poseMatchStartTime = 0L
-
-                                        }.addOnCompleteListener {
-                                            isPoseProcessing = false
-                                            imageProxy.close()
-                                        }.addOnFailureListener {
-                                            isPoseProcessing = false
-                                            imageProxy.close()
-                                        }
-                                    }
-                                } else {
-                                    imageProxy.close()
-                                }
-                            }
-
-                            // --- FASE 4: GROUP MODE ---
-                            else if (realTimeUiState.aiPhase == AiPhase.GROUP_MATCH) {
-                                if (!isPoseProcessing) {
-                                    isPoseProcessing = true
-                                    val image = InputImage.fromMediaImage(mediaImage, rotation)
-
+                                poseDetector.process(image).addOnSuccessListener { pose ->
                                     faceClient.process(image).addOnSuccessListener { faces ->
-                                        if (faces.size < 2) {
-                                            viewModel.onEvent(CameraEvent.SwitchAiPhase(AiPhase.READY_TO_MATCH))
+
+                                        if (faces.size >= 2) {
+                                            viewModel.onEvent(CameraEvent.SwitchAiPhase(AiPhase.GROUP_MATCH))
                                             return@addOnSuccessListener
                                         }
-                                        if (faces.count {
-                                                (it.smilingProbability ?: 0f) > 0.15f
-                                            } >= 2 && (System.currentTimeMillis() - lastPhotoTakenTime > 3000L)) {
-                                            lastPhotoTakenTime = System.currentTimeMillis()
-                                            viewModel.onEvent(CameraEvent.TakePhotoLocal)
+
+                                        val ls = pose.getPoseLandmark(PoseLandmark.LEFT_SHOULDER)
+                                        val rs = pose.getPoseLandmark(PoseLandmark.RIGHT_SHOULDER)
+
+                                        if (ls != null && rs != null && ls.inFrameLikelihood > 0.4f) {
+                                            isPersonDetected = true
+                                            val midShoulderX = (ls.position.x + rs.position.x) / 2f
+                                            val midShoulderY = (ls.position.y + rs.position.y) / 2f
+                                            userAnchorX =
+                                                if (isFrontCamera) 1f - (midShoulderX / imgW) else (midShoulderX / imgW)
+                                            userAnchorY = midShoulderY / imgH
+                                            userBodyScale =
+                                                Math.abs(ls.position.x - rs.position.x) / imgW
+
+                                            val lw = pose.getPoseLandmark(PoseLandmark.LEFT_WRIST)
+                                            val rw = pose.getPoseLandmark(PoseLandmark.RIGHT_WRIST)
+
+                                            if (lw != null && rw != null) {
+                                                val lwY = lw.position.y / imgH;
+                                                val rwY = rw.position.y / imgH
+                                                val lsY = ls.position.y / imgH;
+                                                val rsY = rs.position.y / imgH
+                                                val lwX = lw.position.x / imgW;
+                                                val rwX = rw.position.x / imgW
+                                                val lsX = ls.position.x / imgW;
+                                                val rsX = rs.position.x / imgW
+
+                                                val leftHandUp = lwY < lsY - 0.05f;
+                                                val rightHandUp = rwY < rsY - 0.05f
+                                                val leftHandWayUp = lwY < lsY - 0.15f;
+                                                val rightHandWayUp = rwY < rsY - 0.15f
+                                                val leftHandLow = lwY > lsY + 0.1f;
+                                                val rightHandLow = rwY > rsY + 0.1f
+                                                val leftHandMid =
+                                                    lwY > lsY - 0.1f && lwY < lsY + 0.3f
+                                                val rightHandMid =
+                                                    rwY > rsY - 0.1f && rwY < rsY + 0.3f
+
+                                                val isLeftHandOnChest =
+                                                    lwY > lsY && lwY < lsY + 0.4f && lwX > minOf(
+                                                        lsX, rsX
+                                                    ) && lwX < maxOf(lsX, rsX)
+                                                val isRightHandOnChest =
+                                                    rwY > rsY && rwY < rsY + 0.4f && rwX > minOf(
+                                                        lsX, rsX
+                                                    ) && rwX < maxOf(lsX, rsX)
+                                                val wristsSpread =
+                                                    Math.abs(lwX - rwX) > (Math.abs(lsX - rsX) * 1.5f)
+                                                val wristsCloseToFace =
+                                                    Math.abs(lwX - rwX) < (Math.abs(lsX - rsX) * 1.0f)
+
+                                                // Pastikan pakai realTimeUiState untuk nangkep perubahan pose!
+                                                isPoseMatched =
+                                                    when (realTimeUiState.currentPoseType) {
+                                                        Y2KPoseType.HALF_BODY_PEACE -> (leftHandUp && rightHandLow) || (leftHandLow && rightHandUp)
+                                                        Y2KPoseType.HALF_BODY_COOL -> isLeftHandOnChest && isRightHandOnChest
+                                                        Y2KPoseType.HALF_BODY_SALUTE -> (leftHandWayUp && rightHandLow) || (leftHandLow && rightHandWayUp)
+                                                        Y2KPoseType.HALF_BODY_FRAME -> leftHandMid && rightHandMid && wristsCloseToFace
+                                                        Y2KPoseType.HALF_BODY_FLEX -> leftHandUp && rightHandUp && wristsSpread
+                                                        Y2KPoseType.HALF_BODY_POINT -> (leftHandMid && rightHandLow) || (leftHandLow && rightHandMid)
+                                                        Y2KPoseType.HALF_BODY_GUNS -> leftHandMid && rightHandMid && wristsCloseToFace
+
+                                                        Y2KPoseType.FULL_BODY_WIDE -> leftHandLow && rightHandLow && wristsSpread
+                                                        Y2KPoseType.FULL_BODY_ACTION -> leftHandUp || rightHandUp
+                                                        Y2KPoseType.FULL_BODY_HANDS_UP -> leftHandWayUp && rightHandWayUp
+                                                        Y2KPoseType.FULL_BODY_T_POSE -> leftHandMid && rightHandMid && wristsSpread
+                                                        Y2KPoseType.FULL_BODY_ONE_UP -> (leftHandWayUp && rightHandLow) || (leftHandLow && rightHandWayUp)
+                                                        Y2KPoseType.FULL_BODY_HEAD -> leftHandUp && rightHandUp && wristsCloseToFace
+                                                        Y2KPoseType.FULL_BODY_CROSS -> isLeftHandOnChest && isRightHandOnChest
+                                                    }
+                                            } else isPoseMatched = false
+                                        } else {
+                                            isPersonDetected = false; isPoseMatched = false
                                         }
+
+                                        val currentTime = System.currentTimeMillis()
+                                        if (isPoseMatched) {
+                                            if (poseMatchStartTime == 0L) poseMatchStartTime =
+                                                currentTime
+                                            if ((faces.firstOrNull()?.smilingProbability?.let { it > 0.15f } == true || currentTime - poseMatchStartTime > 1500L) && (currentTime - lastPhotoTakenTime > 3000L)) {
+                                                lastPhotoTakenTime = currentTime
+                                                poseMatchStartTime = 0L
+                                                viewModel.onEvent(CameraEvent.TakePhotoLocal)
+                                                viewModel.onEvent(CameraEvent.CycleTargetPose)
+                                            }
+                                        } else poseMatchStartTime = 0L
+
                                     }.addOnCompleteListener {
                                         isPoseProcessing = false
                                         imageProxy.close()
@@ -567,7 +632,34 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                                         isPoseProcessing = false
                                         imageProxy.close()
                                     }
-                                } else {
+                                }
+                            } else {
+                                imageProxy.close()
+                            }
+                        }
+
+                        // --- FASE 4: GROUP MODE ---
+                        else if (realTimeUiState.aiPhase == AiPhase.GROUP_MATCH) {
+                            if (!isPoseProcessing) {
+                                isPoseProcessing = true
+                                val image = InputImage.fromMediaImage(mediaImage, rotation)
+
+                                faceClient.process(image).addOnSuccessListener { faces ->
+                                    if (faces.size < 2) {
+                                        viewModel.onEvent(CameraEvent.SwitchAiPhase(AiPhase.READY_TO_MATCH))
+                                        return@addOnSuccessListener
+                                    }
+                                    if (faces.count {
+                                            (it.smilingProbability ?: 0f) > 0.15f
+                                        } >= 2 && (System.currentTimeMillis() - lastPhotoTakenTime > 3000L)) {
+                                        lastPhotoTakenTime = System.currentTimeMillis()
+                                        viewModel.onEvent(CameraEvent.TakePhotoLocal)
+                                    }
+                                }.addOnCompleteListener {
+                                    isPoseProcessing = false
+                                    imageProxy.close()
+                                }.addOnFailureListener {
+                                    isPoseProcessing = false
                                     imageProxy.close()
                                 }
                             } else {
@@ -576,15 +668,16 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                         } else {
                             imageProxy.close()
                         }
+                    } else {
+                        imageProxy.close()
                     }
                 }
+
             } catch (exc: Exception) {
-                Log.e("CAMERA_LOG", "Gagal bind", exc)
+                Log.e("CAMERA_LOG", "Gagal bind total", exc)
                 if (uiState.isUltrawideActive) {
                     Toast.makeText(
-                        context,
-                        "OS memblokir mode ini pada lensa Ultrawide",
-                        Toast.LENGTH_SHORT
+                        context, "OS memblokir mode ini secara total", Toast.LENGTH_SHORT
                     ).show()
                     viewModel.onEvent(CameraEvent.SetZoomLocal(1f))
                 }
@@ -592,13 +685,14 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
         }, ContextCompat.getMainExecutor(context))
     }
 
-    LaunchedEffect(uiState.zoomRatio, uiState.isUltrawideActive, cameraControl, cameraInfo) {
+    val isRequestingUltrawideZoom = uiState.zoomRatio < 1f || uiState.isUltrawideActive
+    LaunchedEffect(uiState.zoomRatio, isRequestingUltrawideZoom, cameraControl, cameraInfo) {
         cameraControl?.let { control ->
             try {
                 val minZ = cameraInfo?.zoomState?.value?.minZoomRatio ?: 1f
                 val maxZ = cameraInfo?.zoomState?.value?.maxZoomRatio ?: 1f
                 val applyZoom =
-                    if (uiState.isUltrawideActive && minZ >= 1f) 1f else if (uiState.zoomRatio < minZ) minZ else uiState.zoomRatio
+                    if (isRequestingUltrawideZoom && minZ >= 1f) 1f else if (uiState.zoomRatio < minZ) minZ else uiState.zoomRatio
                 control.setZoomRatio(applyZoom.coerceIn(minZ, maxZ))
             } catch (e: Exception) {
             }
@@ -613,21 +707,18 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
 
                 if (uiState.iso != 100 || uiState.shutterSpeed > 0L) {
                     builder.setCaptureRequestOption(
-                        CaptureRequest.CONTROL_AE_MODE,
-                        CaptureRequest.CONTROL_AE_MODE_OFF
+                        CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_OFF
                     )
                     val applyIso = if (uiState.iso == 100) 800 else uiState.iso
                     val applyShutter =
                         if (uiState.shutterSpeed == 0L) 33333333L else uiState.shutterSpeed
                     builder.setCaptureRequestOption(CaptureRequest.SENSOR_SENSITIVITY, applyIso)
                     builder.setCaptureRequestOption(
-                        CaptureRequest.SENSOR_EXPOSURE_TIME,
-                        applyShutter
+                        CaptureRequest.SENSOR_EXPOSURE_TIME, applyShutter
                     )
                 } else {
                     builder.setCaptureRequestOption(
-                        CaptureRequest.CONTROL_AE_MODE,
-                        CaptureRequest.CONTROL_AE_MODE_ON
+                        CaptureRequest.CONTROL_AE_MODE, CaptureRequest.CONTROL_AE_MODE_ON
                     )
                 }
                 c2Control.captureRequestOptions = builder.build()
@@ -647,26 +738,21 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                 }
             } else {
                 val name = SimpleDateFormat(
-                    "yyyy-MM-dd-HH-mm-ss-SSS",
-                    Locale.US
+                    "yyyy-MM-dd-HH-mm-ss-SSS", Locale.US
                 ).format(System.currentTimeMillis())
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, name)
                     put(MediaStore.MediaColumns.MIME_TYPE, "video/mp4")
                     if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) put(
-                        MediaStore.Video.Media.RELATIVE_PATH,
-                        "Movies/VibeCheck"
+                        MediaStore.Video.Media.RELATIVE_PATH, "Movies/VibeCheck"
                     )
                 }
                 val mediaStoreOutput = MediaStoreOutputOptions.Builder(
-                    context.contentResolver,
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                )
-                    .setContentValues(contentValues).build()
+                    context.contentResolver, MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                ).setContentValues(contentValues).build()
 
                 val hasAudioPerm = ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.RECORD_AUDIO
+                    context, Manifest.permission.RECORD_AUDIO
                 ) == PackageManager.PERMISSION_GRANTED
                 var pendingRecording =
                     videoCapture.output.prepareRecording(context, mediaStoreOutput)
@@ -677,15 +763,17 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                         if (event is VideoRecordEvent.Finalize) {
                             activeRecording = null
                             if (!event.hasError()) Toast.makeText(
-                                context,
-                                "Video tersimpan!",
-                                Toast.LENGTH_SHORT
+                                context, "Video tersimpan!", Toast.LENGTH_SHORT
                             ).show()
                         }
                     }
             }
         } else {
             coroutineScope.launch {
+
+                // --- BIKIN HP BUNYI "CEKREK" ---
+                mediaActionSound.play(android.media.MediaActionSound.SHUTTER_CLICK)
+
                 // --- HACK DEWA: PAKSA FLASH NYALA DENGAN SENTER SEBELUM FOTO ---
                 val isFlashOn = uiState.flashMode == ImageCapture.FLASH_MODE_ON
                 if (isFlashOn) {
@@ -693,14 +781,64 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                     delay(400) // Kasih waktu 400ms biar cahaya stabil dan fokus ngunci
                 }
 
+
+
                 screenFlashAlpha.snapTo(1f)
                 delay(100)
-                takePhoto(imageCapture, context, onPhotoSaved = {
-                    latestPhotoUri = getLatestVibeCheckImage(context)
+                takePhoto(imageCapture, context, onPhotoSaved = { uri ->
+                    if (uri != null) {
+                        latestPhotoUri = uri // Update Thumbnail lokal
+
+                        // --- FITUR DUAL SAVE: KIRIM KE REMOTE ---
+                        // 🛡️ PENAWAR BUG: Gunakan realTimeIsConnected biar gak kena variabel basi!
+                        if (realTimeIsConnected) {
+                            coroutineScope.launch(Dispatchers.IO) {
+                                try {
+                                    val bmp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                        val source = android.graphics.ImageDecoder.createSource(
+                                            context.contentResolver, uri
+                                        )
+                                        android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                                            // 🛡️ ANTI CRASH: Paksa Android pakai Software Bitmap!
+                                            decoder.allocator =
+                                                android.graphics.ImageDecoder.ALLOCATOR_SOFTWARE
+                                            decoder.isMutableRequired = true
+                                        }
+                                    } else {
+                                        MediaStore.Images.Media.getBitmap(
+                                            context.contentResolver, uri
+                                        )
+                                    }
+
+                                    // 🛡️ NETWORK FRIENDLY: Scale ke 800px biar Socket P2P gak meledak
+                                    val scale = minOf(800f / bmp.width, 800f / bmp.height, 1f)
+                                    val matrix =
+                                        android.graphics.Matrix().apply { postScale(scale, scale) }
+                                    val resized = android.graphics.Bitmap.createBitmap(
+                                        bmp, 0, 0, bmp.width, bmp.height, matrix, true
+                                    )
+
+                                    val stream = java.io.ByteArrayOutputStream()
+                                    // Kompresi 60% biar ukurannya wusss masuk ke Remote!
+                                    resized.compress(
+                                        android.graphics.Bitmap.CompressFormat.JPEG, 60, stream
+                                    )
+
+                                    viewModel.onEvent(CameraEvent.SharePhotoToRemote(stream.toByteArray()))
+
+                                    // Bersihkan RAM setelah ngirim
+                                    resized.recycle()
+                                    if (bmp != resized) bmp.recycle()
+
+                                } catch (e: Exception) {
+                                    Log.e("P2P_LOG", "Gagal ngirim foto HD", e)
+                                }
+                            }
+                        }
+                    }
                 }) {
                     coroutineScope.launch {
                         screenFlashAlpha.animateTo(0f)
-                        // MATIKAN KEMBALI SENTER SETELAH FOTO JADI
                         if (isFlashOn) cameraControl?.enableTorch(false)
                     }
                 }
@@ -740,7 +878,10 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                 .fillMaxSize()
                 .padding(bottom = if (is169) 0.dp else 120.dp)
         ) {
-            AndroidView(factory = { previewView }, modifier = Modifier.fillMaxSize())
+            AndroidView(
+                factory = { previewView },
+                modifier = Modifier.fillMaxSize()
+            )
 
             // --- RENDER ANIMASI SCANNING (SAAT YOLO MIKIR) ---
             if (uiState.isPoseSuggestionActive && uiState.aiPhase == AiPhase.SCANNING) {
@@ -943,9 +1084,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                             !isRecording
                         ) { viewModel.onEvent(CameraEvent.ToggleTimerLocal) }
                         ModeControlBtn(
-                            if (is169) "16:9" else "4:3",
-                            Color.Cyan,
-                            !isRecording
+                            if (is169) "16:9" else "4:3", Color.Cyan, !isRecording
                         ) { viewModel.onEvent(CameraEvent.ToggleAspectRatio) }
                         ModeControlBtn(
                             if (uiState.isVideoMode) "VID" else "PIC",
@@ -980,9 +1119,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                 ) {
                     val uwLabel =
                         if (dynamicMinZoom == 0.6f) ".6" else if (dynamicMinZoom == 0.5f) ".5" else String.format(
-                            Locale.US,
-                            "%.1f",
-                            dynamicMinZoom
+                            Locale.US, "%.1f", dynamicMinZoom
                         ).replace("0.", ".")
                     val zooms = listOf(dynamicMinZoom, 1f, 2f)
                     zooms.forEach { z ->
@@ -999,8 +1136,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                                 .clickable {
                                     viewModel.onEvent(CameraEvent.SetZoomLocal(z))
                                 }
-                                .padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
+                                .padding(horizontal = 16.dp, vertical = 8.dp))
                     }
                 }
             }
@@ -1059,8 +1195,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                             .size(70.dp)
                             .y2kPressEffect(shutterInteractionSource)
                             .clickable(
-                                interactionSource = shutterInteractionSource,
-                                indication = null
+                                interactionSource = shutterInteractionSource, indication = null
                             ) {
                                 haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                                 viewModel.onEvent(CameraEvent.TakePhotoLocal)
@@ -1071,8 +1206,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                                 }
                             )
                             .border(4.dp, Color.White, RectangleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
+                        contentAlignment = Alignment.Center) {
                         if (isRecording) {
                             Box(
                                 modifier = Modifier
@@ -1101,8 +1235,7 @@ fun CameraScreen(viewModel: CameraViewModel, onNavigateBack: () -> Unit) {
                                     )
                                     viewModel.onEvent(CameraEvent.FlipCameraLocal)
                                 }
-                                .padding(12.dp)
-                        ) {
+                                .padding(12.dp)) {
                             Text("FLIP", color = Color.White, style = Y2KTypography.bodySmall)
                         }
                     }
@@ -1132,8 +1265,7 @@ fun getLatestVibeCheckImage(context: Context): Uri? {
                     val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
                     val id = cursor.getLong(idColumn)
                     return ContentUris.withAppendedId(
-                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                        id
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id
                     )
                 }
             }
@@ -1155,8 +1287,7 @@ fun AlbumThumbnail(uri: Uri?, onClick: () -> Unit) {
                     val bmp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         android.graphics.ImageDecoder.decodeBitmap(
                             android.graphics.ImageDecoder.createSource(
-                                context.contentResolver,
-                                uri
+                                context.contentResolver, uri
                             )
                         )
                     } else {
@@ -1194,7 +1325,7 @@ fun AlbumThumbnail(uri: Uri?, onClick: () -> Unit) {
 fun takePhoto(
     imageCapture: ImageCapture,
     context: Context,
-    onPhotoSaved: () -> Unit,
+    onPhotoSaved: (Uri?) -> Unit,
     onCaptureComplete: () -> Unit
 ) {
     val name =
@@ -1203,18 +1334,16 @@ fun takePhoto(
         put(MediaStore.MediaColumns.DISPLAY_NAME, name)
         put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
         if (Build.VERSION.SDK_INT > Build.VERSION_CODES.P) put(
-            MediaStore.Images.Media.RELATIVE_PATH,
-            "Pictures/VibeCheck"
+            MediaStore.Images.Media.RELATIVE_PATH, "Pictures/VibeCheck"
         )
     }
     val outputOptions = ImageCapture.OutputFileOptions.Builder(
-        context.contentResolver,
-        MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-        contentValues
+        context.contentResolver, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues
     ).build()
 
     imageCapture.takePicture(
-        outputOptions, ContextCompat.getMainExecutor(context),
+        outputOptions,
+        ContextCompat.getMainExecutor(context),
         object : ImageCapture.OnImageSavedCallback {
             override fun onError(exc: ImageCaptureException) {
                 Log.e("FIKAL_ERROR", "Gagal menyimpan foto", exc)
@@ -1222,12 +1351,11 @@ fun takePhoto(
             }
 
             override fun onImageSaved(output: ImageCapture.OutputFileResults) {
-                Toast.makeText(context, "Foto tersimpan!", Toast.LENGTH_SHORT).show()
-                onPhotoSaved()
+                Toast.makeText(context, "Foto tersimpan di Host!", Toast.LENGTH_SHORT).show()
+                onPhotoSaved(output.savedUri) // <-- Lempar Uri-nya ke atas
                 onCaptureComplete()
             }
-        }
-    )
+        })
 }
 
 fun bitmapToByteArray(bitmap: android.graphics.Bitmap): ByteArray {
@@ -1244,8 +1372,7 @@ fun ProControlBtn(label: String, value: String, onClick: () -> Unit) {
             .border(1.dp, Color.Green, RectangleShape)
             .clickable { onClick() }
             .padding(8.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+        horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = Color.Green, fontSize = 10.sp)
         Text(value, color = Color.White, style = Y2KTypography.bodyMedium)
     }
@@ -1258,8 +1385,7 @@ fun ModeControlBtn(txt: String, color: Color, enabled: Boolean, onClick: () -> U
             .background(Color.Black.copy(alpha = 0.5f))
             .border(2.dp, color, RectangleShape)
             .clickable(enabled) { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center
-    ) {
+            .padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.Center) {
         Text(txt, color = color, style = Y2KTypography.bodySmall)
     }
 }

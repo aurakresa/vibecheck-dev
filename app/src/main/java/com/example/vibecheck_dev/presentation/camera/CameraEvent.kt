@@ -15,7 +15,8 @@ sealed class CameraEvent {
         val isMatched: Boolean,
         val anchorX: Float,
         val anchorY: Float,
-        val bodyScale: Float
+        val bodyScale: Float,
+        val isPersonDetected: Boolean
     ) : CameraEvent()
     object GestureDetected : CameraEvent()
     object TakePhotoLocal : CameraEvent()
@@ -49,4 +50,7 @@ sealed class CameraEvent {
     data class SwitchAiPhase(val phase: AiPhase) : CameraEvent()
 
     object CycleTargetPose : CameraEvent()
+
+    // Taruh di dalam sealed class CameraEvent
+    data class SharePhotoToRemote(val byteArray: ByteArray) : CameraEvent()
 }

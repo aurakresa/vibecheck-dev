@@ -31,5 +31,9 @@ data class RemoteUiState(
     val isPoseMatched: Boolean = false,
     val anchorX: Float = 0f,
     val anchorY: Float = 0f,
-    val bodyScale: Float = 0f
+    val bodyScale: Float = 0f,
+    val isPersonDetected: Boolean = false,
+
+    // 🛡️ TAMBAHAN BARU: Buat nendang UI langsung ke halaman pencarian
+    val isHostDisconnected: Boolean = false
 )
