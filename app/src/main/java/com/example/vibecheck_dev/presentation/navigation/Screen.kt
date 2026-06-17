@@ -87,4 +87,5 @@ sealed class Screen(val route: String, val title: String, val pixelMatrix: List<
     // ... rute lainnya ...
     // TAMBAHIN INI BRO:
     object Splash : Screen("splash_screen", "BOOT")
+    object SystemLog : Screen("system_log_screen", "SYS_LOG")
 }

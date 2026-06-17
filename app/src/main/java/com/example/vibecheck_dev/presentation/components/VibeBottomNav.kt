@@ -21,7 +21,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import com.example.vibecheck_dev.presentation.navigation.Screen
 import com.example.vibecheck_dev.ui.theme.Y2KTypography
 
-// Engine Penggambar Ikon Piksel Native
 @Composable
 fun PixelArtIcon(matrix: List<String>, color: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.aspectRatio(1f)) {
@@ -29,15 +28,10 @@ fun PixelArtIcon(matrix: List<String>, color: Color, modifier: Modifier = Modifi
         val cols = matrix.maxOf { it.length }
         val pixelWidth = size.width / cols
         val pixelHeight = size.height / rows
-
         for (r in 0 until rows) {
             for (c in 0 until matrix[r].length) {
                 if (matrix[r][c] == 'X') {
-                    drawRect(
-                        color = color,
-                        topLeft = Offset(c * pixelWidth, r * pixelHeight),
-                        size = Size(pixelWidth, pixelHeight)
-                    )
+                    drawRect(color = color, topLeft = Offset(c * pixelWidth, r * pixelHeight), size = Size(pixelWidth, pixelHeight))
                 }
             }
         }
@@ -45,13 +39,13 @@ fun PixelArtIcon(matrix: List<String>, color: Color, modifier: Modifier = Modifi
 }
 
 @Composable
-fun VibeBottomNav(navController: NavController) {
-    val items = listOf(
-        Screen.Home,
-        Screen.Studio,
-        Screen.Purikura
-    )
-
+fun VibeBottomNav(
+    navController: NavController,
+    isGuestMode: Boolean = false,
+    // 🔴 Parameter baru: Nangkap rute mana yang mau dibuka setelah sukses login
+    onAuthRequested: (String) -> Unit = {}
+) {
+    val items = listOf(Screen.Home, Screen.Studio, Screen.Purikura)
     val bgColor = MaterialTheme.colorScheme.background
     val primaryColor = MaterialTheme.colorScheme.primary
     val secondaryColor = MaterialTheme.colorScheme.secondary
@@ -60,33 +54,25 @@ fun VibeBottomNav(navController: NavController) {
     val navBackStackEntry = navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry.value?.destination?.route
 
-    // Kontainer Bottom Nav Ala Retro Terminal
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(70.dp)
-            .background(bgColor)
-            .border(2.dp, secondaryColor, RectangleShape),
+        modifier = Modifier.fillMaxWidth().height(70.dp).background(bgColor).border(2.dp, secondaryColor, RectangleShape),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
         items.forEach { screen ->
             val isSelected = currentRoute == screen.route
-
-            // Logika Warna Y2K: Kalau dipilih jadi Magenta, kalau nggak Cyan/Abu
             val iconColor = if (isSelected) primaryColor else onBgColor.copy(alpha = 0.5f)
             val textColor = if (isSelected) primaryColor else onBgColor.copy(alpha = 0.5f)
             val itemBgColor = if (isSelected) onBgColor.copy(alpha = 0.1f) else Color.Transparent
             val borderModifier = if (isSelected) Modifier.border(1.dp, primaryColor, RectangleShape) else Modifier
 
             Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .background(itemBgColor)
-                    .then(borderModifier)
+                modifier = Modifier.weight(1f).fillMaxHeight().background(itemBgColor).then(borderModifier)
                     .clickable {
-                        if (currentRoute != screen.route) {
+                        // 🔴 Kalau guest klik Studio/Purikura -> Tembak rutenya ke MainActivity buat munculin Dialog!
+                        if (isGuestMode && (screen.route == Screen.Studio.route || screen.route == Screen.Purikura.route)) {
+                            onAuthRequested(screen.route)
+                        } else if (currentRoute != screen.route) {
                             navController.navigate(screen.route) {
                                 popUpTo(navController.graph.startDestinationId) { saveState = true }
                                 launchSingleTop = true
@@ -98,22 +84,11 @@ fun VibeBottomNav(navController: NavController) {
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                // FIX: Gunakan safe call (?.let) untuk memastikan data tidak null sebelum digambar
                 screen.pixelMatrix?.let { matrix ->
-                    PixelArtIcon(
-                        matrix = matrix,
-                        color = iconColor,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    PixelArtIcon(matrix = matrix, color = iconColor, modifier = Modifier.size(24.dp))
                     Spacer(modifier = Modifier.height(6.dp))
                 }
-
-                // Teks Menu
-                Text(
-                    text = screen.title,
-                    color = textColor,
-                    style = Y2KTypography.bodySmall.copy(fontSize = 8.sp)
-                )
+                Text(text = screen.title, color = textColor, style = Y2KTypography.bodySmall.copy(fontSize = 8.sp))
             }
         }
     }

@@ -34,7 +34,7 @@ val PIXEL_DISK = listOf(
 )
 
 @Composable
-fun SplashScreen(navController: NavController) {
+fun SplashScreen(navController: NavController, nextRoute: String = Screen.Home.route) {
     var progress by remember { mutableIntStateOf(0) }
     var terminalLogs by remember { mutableStateOf("") }
     var showLogo by remember { mutableStateOf(false) }
@@ -46,7 +46,6 @@ fun SplashScreen(navController: NavController) {
     val onBgColor = MaterialTheme.colorScheme.onBackground
     val borderColor = onBgColor.copy(alpha = 0.3f)
 
-    // Efek Animasi Booting Terminal
     LaunchedEffect(Unit) {
         val logs = listOf(
             "> INITIALIZING VIBECHECK_OS...",
@@ -55,15 +54,11 @@ fun SplashScreen(navController: NavController) {
             "> ESTABLISHING P2P PROTOCOL...",
             "> SYSTEM READY."
         )
-
-        delay(300) // Jeda awal
+        delay(300)
         showLogo = true
-
         for (i in 1..100) {
-            delay(25) // Kecepatan loading (total sekitar 2.5 detik)
+            delay(25)
             progress = i
-
-            // Munculin log berdasarkan persentase
             when (i) {
                 10 -> terminalLogs += logs[0] + "\n"
                 35 -> terminalLogs += logs[1] + "\n"
@@ -72,11 +67,10 @@ fun SplashScreen(navController: NavController) {
                 100 -> terminalLogs += logs[4] + "\n"
             }
         }
+        delay(800)
 
-        delay(800) // Tahan sebentar di 100% biar user sempet baca "SYSTEM READY"
-
-        // Pindah ke HomeScreen dan hancurkan SplashScreen dari backstack (biar kalau di-back gak balik ke loading)
-        navController.navigate(Screen.Home.route) {
+        // 🔴 Navigasi dinamis pakai nextRoute!
+        navController.navigate(nextRoute) {
             popUpTo(Screen.Splash.route) { inclusive = true }
         }
     }
