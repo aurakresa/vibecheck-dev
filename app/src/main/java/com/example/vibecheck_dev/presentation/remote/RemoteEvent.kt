@@ -18,4 +18,6 @@ sealed class RemoteEvent {
     object ToggleVideoMode : RemoteEvent()
     data class SetIso(val iso: Int) : RemoteEvent()
     data class SetShutterSpeed(val speed: Long) : RemoteEvent()
+
+    object ToggleAiMode : RemoteEvent()
 }

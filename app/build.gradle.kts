@@ -60,6 +60,8 @@ dependencies {
     implementation(libs.play.services.auth)
     implementation(libs.androidx.compose.foundation)
 
+//    implementation(libs.androidx.ui.graphics)
+    testImplementation("org.robolectric:robolectric:4.11.1")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -119,4 +121,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.7.3")
 
     implementation("io.coil-kt:coil-compose:2.5.0")
+    // 6. TensorFlow Lite (Untuk YOLOv8 Scene & Bounding Box Detection)
+    implementation("org.tensorflow:tensorflow-lite:2.14.0")
+    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
+
+    // 6. ML Kit Face Detection (Untuk mendeteksi senyum)
+    implementation("com.google.mlkit:face-detection:16.1.7")
 }
