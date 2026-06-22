@@ -10,4 +10,7 @@ sealed class HomeEvent {
     data class SaveProfile(val context: android.content.Context) : HomeEvent()
     object ResetSaveStatus : HomeEvent()
     object FetchLogs : HomeEvent()
+
+    // 🔴 EVENT BARU BUAT LOGOUT
+    data class SendLogoutLog(val deviceName: String) : HomeEvent()
 }

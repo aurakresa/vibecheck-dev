@@ -19,6 +19,28 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.vibecheck_dev.ui.theme.Y2KTypography
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.TimeZone
+
+// 🔴 FUNGSI BARU BUAT CONVERT UTC KE JAM LOKAL HP
+fun formatToLocalTime(utcTimeString: String): String {
+    return try {
+        // Parser untuk baca format mentahan dari Vercel (UTC)
+        val parser = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.US)
+        parser.timeZone = TimeZone.getTimeZone("UTC")
+        val date = parser.parse(utcTimeString)
+
+        // Formatter untuk ngeluarin output sesuai zona waktu HP
+        val formatter = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        formatter.timeZone = TimeZone.getDefault() // Otomatis ngikutin jam HP
+
+        if (date != null) formatter.format(date) else utcTimeString
+    } catch (e: Exception) {
+        // Kalau gagal baca, balikin cara lama
+        utcTimeString.replace("T", " ").substringBefore(".")
+    }
+}
 
 @Composable
 fun SystemLogScreen(
@@ -26,7 +48,6 @@ fun SystemLogScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    // Otomatis download log pas layar/komponen ini dibuka
     LaunchedEffect(Unit) {
         viewModel.onEvent(HomeEvent.FetchLogs)
     }
@@ -80,32 +101,52 @@ fun SystemLogScreen(
                     )
                 }
                 else -> {
+                    val groupedLogs = uiState.userLogs.groupBy { log ->
+                        when (log.action) {
+                            "SEC_LOGIN", "SEC_LOGOUT" -> "AUTH SESSIONS"
+                            "UPDATE_PROFILE" -> "USERNAME UPDATES"
+                            "SEC_UPDATE" -> "PASSWORD UPDATES"
+                            "SYNC_CLOUD" -> "PROFILE PIC UPDATES"
+                            "SYS_P2P", "SYS_TRANSFER" -> "SYSTEM & P2P"
+                            else -> "OTHER AUDITS"
+                        }
+                    }
+
                     LazyColumn(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(uiState.userLogs) { log ->
-                            // Merapikan string ISO Date bawaan Vercel biar ala hacker
-                            val cleanTime = log.timestamp
-                                .replace("T", " ")
-                                .substringBefore(".")
+                        groupedLogs.forEach { (category, logs) ->
+                            item {
+                                Text(
+                                    text = "--- [ $category ] ---",
+                                    color = Color.Yellow,
+                                    style = Y2KTypography.bodyMedium,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                                )
+                            }
 
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .border(1.dp, Color.DarkGray, RectangleShape)
-                                    .background(Color.Black.copy(alpha = 0.6f))
-                                    .padding(8.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween
+                            items(logs) { log ->
+                                // 🔴 PANGGIL FUNGSI CONVERTER DI SINI
+                                val cleanTime = formatToLocalTime(log.timestamp)
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .border(1.dp, Color.DarkGray, RectangleShape)
+                                        .background(Color.Black.copy(alpha = 0.6f))
+                                        .padding(8.dp)
                                 ) {
-                                    Text(text = "[$cleanTime]", color = Color.Cyan, fontSize = 11.sp, style = Y2KTypography.bodySmall)
-                                    Text(text = "<${log.action}>", color = Color.Magenta, fontSize = 11.sp, style = Y2KTypography.bodySmall)
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(text = "[$cleanTime]", color = Color.Cyan, fontSize = 11.sp, style = Y2KTypography.bodySmall)
+                                        Text(text = "<${log.action}>", color = Color.Magenta, fontSize = 11.sp, style = Y2KTypography.bodySmall)
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(text = "=> ${log.details}", color = Color.Green, style = Y2KTypography.bodyMedium)
                                 }
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(text = "=> ${log.details}", color = Color.Green, style = Y2KTypography.bodyMedium)
                             }
                         }
                     }
@@ -115,5 +156,4 @@ fun SystemLogScreen(
     }
 }
 
-// Helper Modifier Extension sederhana
 private fun Modifier.fillGrid(): Modifier = this.fillMaxWidth().fillMaxHeight()

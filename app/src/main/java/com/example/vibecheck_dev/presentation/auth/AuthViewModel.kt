@@ -95,6 +95,15 @@ class AuthViewModel(
                 val result = auth.signInWithCredential(credential).await()
                 val user = result.user
                 if (user != null) {
+                    // 🔴 TANGKAP NAMA HP BUAT GOOGLE LOGIN
+                    val merk = android.os.Build.MANUFACTURER.uppercase()
+                    val tipe = android.os.Build.MODEL
+                    val deviceName = "$merk $tipe"
+
+                    try {
+                        userRepository.addClientLog("SEC_LOGIN", "Sesi aktif (Google) pada $deviceName", deviceName)
+                    } catch (e: Exception) { /* Abaikan jika gagal */ }
+
                     _authState.update { AuthState.Success(user.uid, user.email ?: "", user.displayName) }
                 }
             } catch (e: Exception) {

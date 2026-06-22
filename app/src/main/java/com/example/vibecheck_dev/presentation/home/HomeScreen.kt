@@ -531,7 +531,23 @@ fun HomeScreen(
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     Box(modifier = Modifier.weight(1f)) { Y2KDialogButton("NO / ABORT", borderColor, onBgColor) { showLogoutDialog = false } }
                     Spacer(modifier = Modifier.width(16.dp))
-                    Box(modifier = Modifier.weight(1f)) { Y2KDialogButton("YES / KILL", errorColor, onBgColor) { showLogoutDialog = false; onLogout() } }
+
+                    // 🔴 UBAH TOMBOL YES JADI SEPERTI INI
+                    Box(modifier = Modifier.weight(1f)) {
+                        Y2KDialogButton("YES / KILL", errorColor, onBgColor) {
+                            showLogoutDialog = false
+
+                            // Tarik info HP
+                            val merk = android.os.Build.MANUFACTURER.uppercase()
+                            val tipe = android.os.Build.MODEL
+                            val deviceName = "$merk $tipe"
+
+                            // Lapor ke ViewModel buat dikirim ke Vercel, baru navigasi pindah
+                            viewModel.onEvent(HomeEvent.SendLogoutLog(deviceName))
+                            onLogout()
+                        }
+                    }
+
                 }
             }
         }

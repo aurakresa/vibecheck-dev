@@ -75,6 +75,7 @@ class HomeViewModel(
             is HomeEvent.ResetSaveStatus -> _uiState.update { it.copy(saveSuccess = false, saveError = null) }
             is HomeEvent.SaveProfile -> saveProfileToFirebase(event.context)
             is HomeEvent.FetchLogs -> fetchLogsFromServer()
+            is HomeEvent.SendLogoutLog -> sendLogoutLog(event.deviceName)
         }
     }
 
@@ -140,16 +141,6 @@ class HomeViewModel(
                     val credential = EmailAuthProvider.getCredential(user.email!!, _uiState.value.oldPassword)
                     user.reauthenticate(credential).await()
                     user.updatePassword(_uiState.value.newPassword).await()
-                }
-
-                // ==========================================
-                // UPDATE PASSWORD (Khusus Email)
-                // ==========================================
-                if (!_uiState.value.isGoogleLogin && _uiState.value.newPassword.isNotBlank()) {
-                    if (_uiState.value.oldPassword.isBlank()) throw Exception("Old Password wajib diisi.")
-                    val credential = EmailAuthProvider.getCredential(user.email!!, _uiState.value.oldPassword)
-                    user.reauthenticate(credential).await()
-                    user.updatePassword(_uiState.value.newPassword).await()
 
                     // 🔴 TAMBAHIN INI BIAR GANTI PASSWORD KECATET!
                     userRepository.addClientLog("SEC_UPDATE", "Update: Password berhasil diubah")
@@ -182,6 +173,17 @@ class HomeViewModel(
                         logsError = result.exceptionOrNull()?.message ?: "Gagal memuat log"
                     )
                 }
+            }
+        }
+    }
+
+    private fun sendLogoutLog(deviceName: String) {
+        viewModelScope.launch {
+            try {
+                userRepository.addClientLog("SEC_LOGOUT", "Sesi ditutup pada $deviceName", deviceName)
+                auth.signOut()
+            } catch (e: Exception) {
+                auth.signOut()
             }
         }
     }
