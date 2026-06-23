@@ -1,85 +1,269 @@
-package com.example.vibecheck
+package com.example.vibecheck_dev
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
-import android.widget.Toast
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.core.content.ContextCompat
-import com.example.vibecheck_dev.ui.screens.CameraHostScreen
-import com.example.vibecheck_dev.ui.theme.VibeCheckdevTheme // Sesuaikan dengan nama project lu
-import com.example.vibecheck_dev.server.VibeServer
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.example.vibecheck_dev.data.local.UserPreferences
+import com.example.vibecheck_dev.presentation.navigation.Screen
+import org.koin.androidx.compose.koinViewModel
+import com.example.vibecheck_dev.ui.theme.VibeCheckdevTheme
+import com.example.vibecheck_dev.presentation.permission.PermissionScreen
+import com.example.vibecheck_dev.presentation.home.HomeScreen
+import com.example.vibecheck_dev.presentation.camera.CameraScreen
+import com.example.vibecheck_dev.presentation.camera.CameraViewModel
+import com.example.vibecheck_dev.presentation.remote.RemoteScreen
+import com.example.vibecheck_dev.presentation.remote.RemoteViewModel
+import com.example.vibecheck_dev.presentation.components.VibeBottomNav
+import com.example.vibecheck_dev.presentation.auth.AuthScreen
+import com.example.vibecheck_dev.presentation.auth.LoginScreen
+import com.example.vibecheck_dev.presentation.auth.OnboardingScreen
+import com.example.vibecheck_dev.presentation.auth.ProfileSetupScreen
+import com.example.vibecheck_dev.presentation.auth.QuickAuthDialog
+import com.example.vibecheck_dev.presentation.studio.StudioScreen
+import com.example.vibecheck_dev.presentation.studio.StudioViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
-
-    // 1. Inisialisasi Mesin Server Lu
-    private val vibeServer = VibeServer()
-
-    // 2. Launcher untuk minta Izin (Camera & Audio)
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val cameraGranted = permissions[Manifest.permission.CAMERA] ?: false
-        val audioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-
-        if (!cameraGranted) {
-            Toast.makeText(this, "Izin Kamera ditolak!", Toast.LENGTH_LONG).show()
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Log.d("FIKAL_DEBUG", "Aplikasi VibeCheck Mulai Berjalan!")
 
-        // 3. Minta izin pas aplikasi baru dibuka
-        checkAndRequestPermissions()
-
-        // 4. Mulai render UI (Menghubungkan Layar dengan Mesin Server)
         setContent {
-            VibeCheckdevTheme { // Ini tema bawaan Compose
+            val context = LocalContext.current
+            val userPreferences = remember { UserPreferences(context) }
+            val activeTheme by userPreferences.themeFlow.collectAsState(initial = "Y2K BRIGHT NEON")
 
-                // Variabel state untuk nyimpen IP yang reaktif (UI otomatis berubah kalau ini berubah)
-                var ipAddress by remember { mutableStateOf("") }
-
-                // Panggil layar UI Host
-                CameraHostScreen(
-                    serverIp = ipAddress,
-                    onStartServer = {
-                        // Nanti di sini lu panggil fungsi getWifiIP() bawaan Android lu
-                        val dummyIp = "192.168.1.10"
-                        ipAddress = dummyIp
-
-                        // Nyalakan Ktor Server (Nanti)
-                        // vibeServer.startServer(dummyIp)
-                    }
-                )
+            VibeCheckdevTheme(themeName = activeTheme) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background
+                ) {
+                    AppNavigation(userPreferences) // Lempar data memori ke AppNavigation
+                }
             }
         }
     }
+}
 
-    private fun checkAndRequestPermissions() {
-        val requiredPermissions = arrayOf(
-            Manifest.permission.CAMERA,
-            Manifest.permission.RECORD_AUDIO
-        )
+@Composable
+fun AppNavigation(userPreferences: UserPreferences) {
+    val navController = rememberNavController()
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
-        val missingPermissions = requiredPermissions.filter {
-            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
-        }.toTypedArray()
+    val isFirstTime by userPreferences.isFirstTimeFlow.collectAsState(initial = null)
+    val playerName by userPreferences.playerNameFlow.collectAsState(initial = null)
+    val isLoggedIn by userPreferences.isLoggedInFlow.collectAsState(initial = null)
+    val activeTheme by userPreferences.themeFlow.collectAsState(initial = "Y2K BRIGHT NEON")
 
-        if (missingPermissions.isNotEmpty()) {
-            requestPermissionLauncher.launch(missingPermissions)
-        }
+    if (isFirstTime == null || isLoggedIn == null) {
+        return // Tunggu DataStore kelar baca
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        // Jangan lupa matiin server kalau aplikasinya ditutup!
-        // vibeServer.stopServer()
+    // LOGIKA PENENTUAN GUEST MODE
+    // Guest = Udah punya nama (lewat setup), tapi status login-nya false
+    val isGuestMode = !playerName.isNullOrEmpty() && isLoggedIn == false
+    val isRealUser = isLoggedIn == true
+
+    // 🔴 1. ATURAN BOTTOM NAVIGATION (Semua bisa liat kalau lagi di halaman utama)
+    val isMainScreen = currentRoute in listOf(Screen.Home.route, Screen.Studio.route, Screen.Purikura.route)
+    val showBottomNav = isMainScreen
+
+    // 🔴 2. STATE UNTUK DIALOG TIKTOK-STYLE
+    var showQuickAuthDialog by remember { mutableStateOf(false) }
+    var pendingRoute by remember { mutableStateOf<String?>(null) } // Catat rute tujuan
+
+    // 🔴 3. LOGIKA ROUTING PINTAR (Tentukan tujuan SETELAH Splash Screen beres)
+    val nextDestination = when {
+        isFirstTime == true -> Screen.Onboarding.route
+        isRealUser || isGuestMode -> Screen.Home.route
+        else -> Screen.Auth.route
+    }
+
+    Scaffold(
+        bottomBar = {
+            if (showBottomNav) {
+                VibeBottomNav(
+                    navController = navController,
+                    isGuestMode = isGuestMode,
+                    onAuthRequested = { targetRoute ->
+                        // 🔴 Cegat user, catat rutenya, lalu munculin form dialog!
+                        pendingRoute = targetRoute
+                        showQuickAuthDialog = true
+                    }
+                )
+            }
+        }) { innerPadding ->
+
+        Box(modifier = Modifier.fillMaxSize()) {
+            NavHost(
+                navController = navController,
+                startDestination = Screen.Splash.route, // 🔴 SELALU MULAI DARI SPLASH!
+                modifier = Modifier.padding(innerPadding)
+            ) {
+                composable(Screen.Splash.route) {
+                    com.example.vibecheck_dev.presentation.splash.SplashScreen(
+                        navController = navController,
+                        nextRoute = nextDestination // 🔴 Lempar tujuan aslinya ke Splash
+                    )
+                }
+
+                // --- LAYAR SETUP & ONBOARDING ---
+                composable(Screen.Onboarding.route) {
+                    OnboardingScreen(
+                        onFinishOnboarding = {
+                            // 🔴 FIX: Kasih tau DataStore kalau Onboarding udah selesai
+                            coroutineScope.launch {
+                                userPreferences.setFirstTimeCompleted()
+                            }
+
+                            navController.navigate(Screen.Auth.route) {
+                                popUpTo(Screen.Onboarding.route) { inclusive = true }
+                            }
+                        })
+                }
+
+                composable(Screen.Auth.route) {
+                    AuthScreen(
+                        onNavigateToLogin = { navController.navigate(Screen.Login.route) },
+                        onNavigateToGuest = { navController.navigate(Screen.ProfileSetup.route) }
+                    )
+                }
+
+                composable(Screen.ProfileSetup.route) {
+                    ProfileSetupScreen(
+                        onSaveSuccess = {
+                            // Guest Baru -> Habis setup lempar ke Permission
+                            navController.navigate(Screen.Permission.route) {
+                                popUpTo(Screen.Auth.route) { inclusive = true }
+                            }
+                        }, userPreferences = userPreferences
+                    )
+                }
+
+                composable(Screen.Login.route) {
+                    LoginScreen(
+                        onLoginSuccess = {
+                            // User Baru -> Habis login lempar ke Permission
+                            navController.navigate(Screen.Permission.route) {
+                                popUpTo(Screen.Auth.route) { inclusive = true }
+                            }
+                        }, userPreferences = userPreferences
+                    )
+                }
+
+                // --- LAYAR UTAMA ---
+                composable(Screen.Permission.route) {
+                    PermissionScreen(
+                        onAllPermissionsGranted = {
+                            navController.navigate(Screen.Home.route) {
+                                popUpTo(Screen.Permission.route) { inclusive = true }
+                            }
+                        })
+                }
+
+                composable(Screen.Home.route) {
+                    // Cek lagi karena State bisa berubah on-the-fly
+                    val currentIsGuest = !playerName.isNullOrEmpty() && isLoggedIn == false
+
+                    HomeScreen(
+                        onNavigateToCamera = { navController.navigate(Screen.Camera.route) },
+                        onNavigateToRemote = { navController.navigate(Screen.Remote.route) },
+                        onNavigateToLogs = { navController.navigate(Screen.SystemLog.route) },
+                        onLogout = {
+                            coroutineScope.launch {
+                                userPreferences.saveAuthSession(token = "", isLogged = false)
+                                userPreferences.savePlayerName("")
+
+                                navController.navigate(Screen.Auth.route) {
+                                    popUpTo(0) { inclusive = true } // Kill semua backstack
+                                }
+                            }
+                        },
+                        isGuestMode = currentIsGuest,
+                        guestName = playerName ?: "GUEST_USER",
+                        activeThemeName = activeTheme,
+                        onThemeChanged = { newTheme ->
+                            coroutineScope.launch { userPreferences.saveTheme(newTheme) }
+                        }
+                    )
+                }
+
+                composable(Screen.Camera.route) {
+                    val cameraViewModel: CameraViewModel = koinViewModel()
+                    CameraScreen(viewModel = cameraViewModel, onNavigateBack = { navController.popBackStack() })
+                }
+
+                composable(Screen.Remote.route) {
+                    val remoteViewModel: RemoteViewModel = koinViewModel()
+                    RemoteScreen(viewModel = remoteViewModel, onNavigateBack = { navController.popBackStack() })
+                }
+
+                // STUDIO & PURIKURA
+                composable(Screen.Studio.route) {
+                    if (isRealUser) {
+                        val studioViewModel: StudioViewModel = koinViewModel()
+                        StudioScreen(viewModel = studioViewModel)
+                    }
+                }
+
+                composable(Screen.Purikura.route) {
+                    if (isRealUser) {
+                        val purikuraViewModel: com.example.vibecheck_dev.presentation.purikura.PurikuraViewModel = koinViewModel()
+                        com.example.vibecheck_dev.presentation.purikura.PurikuraScreen(viewModel = purikuraViewModel)
+                    }
+                }
+                composable(Screen.SystemLog.route) {
+                    // Panggil koinViewModel biar dia otomatis ngambil HomeViewModel
+                    val homeViewModel: com.example.vibecheck_dev.presentation.home.HomeViewModel = koinViewModel()
+                    com.example.vibecheck_dev.presentation.home.SystemLogScreen(viewModel = homeViewModel)
+                }
+            }
+
+            // 🔴 4. RENDER DIALOG AUTH DI ATAS SEMUA LAYAR
+            if (showQuickAuthDialog) {
+                QuickAuthDialog(
+                    onDismiss = {
+                        showQuickAuthDialog = false
+                        pendingRoute = null // Reset niat navigasi kalau batal
+                    },
+                    onSuccess = {
+                        showQuickAuthDialog = false
+
+                        // MAGIC: Langsung loncat ke layar yg diklik tadi!
+                        pendingRoute?.let { route ->
+                            navController.navigate(route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                            pendingRoute = null
+                        }
+                    },
+                    userPreferences = userPreferences
+                )
+            }
+        }
     }
 }

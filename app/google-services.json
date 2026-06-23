@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "372157512376",
+    "project_id": "vibecheck-39256",
+    "storage_bucket": "vibecheck-39256.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:372157512376:android:d6c9699da126e0eedbd24d",
+        "android_client_info": {
+          "package_name": "com.example.vibecheck_dev"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "372157512376-1sunqtkgh2mkdatpafl7ja427hqr19e5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.vibecheck_dev",
+            "certificate_hash": "75eaffac190034c2062aa8666684a5a6b31cce8e"
+          }
+        },
+        {
+          "client_id": "372157512376-o3ob70o1jffopl8hvqndnhj6mj999jl7.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAc5ukzHcx9QRvqt8eCJqh9_0kL_oU7W84"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "372157512376-o3ob70o1jffopl8hvqndnhj6mj999jl7.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
